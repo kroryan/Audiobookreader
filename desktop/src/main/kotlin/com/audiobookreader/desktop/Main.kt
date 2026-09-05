@@ -45,6 +45,8 @@ import com.audiobookreader.data.TtsModelSpec
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.swing.JFileChooser
+import javax.swing.SwingUtilities
+import javax.swing.UIManager
 import javax.swing.filechooser.FileNameExtensionFilter
 
 fun main() = application {
@@ -91,17 +93,11 @@ private fun DesktopApp() {
                     selectedFile = selectedFile,
                     text = text,
                     onOpen = {
-                        val chooser = JFileChooser().apply {
-                            dialogTitle = "Open book"
-                            fileFilter = FileNameExtensionFilter(
-                                "Books and documents (PDF, EPUB, TXT, HTML)",
-                                "pdf", "epub", "txt", "html", "htm",
-                            )
-                        }
-                        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                            selectedFile = chooser.selectedFile
-                            text = runCatching { DesktopBookReader.read(chooser.selectedFile) }
-                                .getOrElse { "Could not open ${chooser.selectedFile.name}: ${it.message}" }
+                        val file = chooseBookFile()
+                        if (file != null) {
+                            selectedFile = file
+                            text = runCatching { DesktopBookReader.read(file) }
+                                .getOrElse { "Could not open ${file.name}: ${it.message}" }
                         }
                     },
                 )
@@ -156,6 +152,31 @@ private fun DesktopApp() {
             },
         )
     }
+}
+
+/**
+ * Compose Desktop and GTK can leave Swing's native file chooser with unreadable
+ * foreground colors. Metal is self-contained and keeps the chooser readable on
+ * Linux, including AppImage launches. JFileChooser must also run on the Swing EDT.
+ */
+private fun chooseBookFile(): File? {
+    var selected: File? = null
+    val openChooser = Runnable {
+        runCatching { UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName()) }
+        val chooser = JFileChooser().apply {
+            dialogTitle = "Open book"
+            fileFilter = FileNameExtensionFilter(
+                "Books and documents (PDF, EPUB, TXT, HTML)",
+                "pdf", "epub", "txt", "html", "htm",
+            )
+        }
+        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+            selected = chooser.selectedFile
+        }
+    }
+    if (SwingUtilities.isEventDispatchThread()) openChooser.run()
+    else SwingUtilities.invokeAndWait(openChooser)
+    return selected
 }
 
 @Composable
