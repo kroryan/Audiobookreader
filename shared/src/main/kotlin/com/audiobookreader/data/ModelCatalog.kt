@@ -1,6 +1,6 @@
 package com.audiobookreader.data
 
-enum class ModelFamily { PIPER, COQUI, MIMIC3, KOKORO, KITTEN, SUPERTONIC }
+enum class ModelFamily { PIPER, COQUI, MIMIC3, KOKORO, KITTEN, SUPERTONIC, EDGE }
 
 data class TtsModelSpec(
     val id: String,
@@ -15,6 +15,12 @@ data class TtsModelSpec(
     val ruleFars: String = "",
     val dataDir: String = "",
     val experimental: Boolean = false,
+    /** Microsoft Edge voice short name, for online Edge TTS entries. */
+    val edgeVoice: String = "",
+    val licenseSpdx: String = "",
+    val licenseUrl: String = "",
+    val attribution: String = "",
+    val requiresAcceptance: Boolean = false,
 )
 
 object ModelCatalog {
@@ -217,6 +223,7 @@ vits-piper-zh_CN-chaowen-medium
     private fun piper(dir: String): TtsModelSpec {
         val suffix = dir.removePrefix("vits-piper-")
         val chinese = dir.contains("zh_CN-xiao_ya") || dir.contains("zh_CN-chaowen")
+        val restrictedOpenVoiceOs = suffix.contains("miro", ignoreCase = true) || suffix.contains("dii", ignoreCase = true)
         val slug = suffix.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
         return TtsModelSpec(
             id = legacyIds[dir] ?: "piper-$slug",
@@ -228,6 +235,10 @@ vits-piper-zh_CN-chaowen-medium
             lexicon = if (chinese) "lexicon.txt" else "",
             ruleFsts = if (chinese) "phone.fst,date.fst,number.fst" else "",
             dataDir = if (chinese) "" else "espeak-ng-data",
+            licenseSpdx = if (restrictedOpenVoiceOs) "CC BY-NC-SA 4.0" else "Per-voice license",
+            licenseUrl = if (restrictedOpenVoiceOs) "https://creativecommons.org/licenses/by-nc-sa/4.0/" else "https://huggingface.co/rhasspy/piper-voices/tree/main",
+            attribution = if (restrictedOpenVoiceOs) "OpenVoiceOS / Piper voice contributors" else "Piper voice contributors",
+            requiresAcceptance = restrictedOpenVoiceOs,
         )
     }
 
@@ -262,18 +273,33 @@ vits-piper-zh_CN-chaowen-medium
             archiveName = "$base$dir.tar.bz2",
             modelName = modelName,
             dataDir = if (family == ModelFamily.COQUI) "" else "espeak-ng-data",
+            licenseSpdx = if (family == ModelFamily.COQUI) "BSD-3-Clause" else "CC BY-SA 4.0",
+            licenseUrl = if (family == ModelFamily.COQUI) "https://github.com/coqui-ai/TTS/blob/dev/TTS/.models.json" else "https://github.com/MycroftAI/mimic3-voices/blob/master/LICENSE",
+            attribution = if (family == ModelFamily.COQUI) "Coqui TTS / NeonGeckoCom" else "MycroftAI Mimic 3 Voices contributors",
+            requiresAcceptance = family == ModelFamily.MIMIC3,
         )
     }
 
     val models: List<TtsModelSpec> = piperDirs.map(::piper) +
         coquiDirs.map { vitsModel(it, ModelFamily.COQUI) } +
         mimic3Dirs.map { vitsModel(it, ModelFamily.MIMIC3) } + listOf(
-            TtsModelSpec("kokoro-en", "Kokoro v0.19 · English", ModelFamily.KOKORO, "en", "${base}kokoro-en-v0_19.tar.bz2", "model.onnx", voices = "voices.bin", dataDir = "espeak-ng-data"),
-            TtsModelSpec("kokoro-multi-v1-0", "Kokoro v1.0 · English + Chinese", ModelFamily.KOKORO, "en", "${base}kokoro-multi-lang-v1_0.tar.bz2", "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data"),
-            TtsModelSpec("kokoro-multi", "Kokoro v1.1 · English + Chinese", ModelFamily.KOKORO, "en", "${base}kokoro-multi-lang-v1_1.tar.bz2", "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data"),
-            TtsModelSpec("kokoro-multi-int8", "Kokoro v1.1 INT8 · English + Chinese", ModelFamily.KOKORO, "en", "${base}kokoro-int8-multi-lang-v1_1.tar.bz2", "model.int8.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data"),
-            TtsModelSpec("supertonic-es", "Supertonic 3 INT8 · Spanish", ModelFamily.SUPERTONIC, "es", "${base}sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2", "", experimental = false),
+            TtsModelSpec("kokoro-en", "Kokoro v0.19 · English", ModelFamily.KOKORO, "en", "${base}kokoro-en-v0_19.tar.bz2", "model.onnx", voices = "voices.bin", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
+            TtsModelSpec("kokoro-multi-v1-0", "Kokoro v1.0 · English + Chinese", ModelFamily.KOKORO, "en", "${base}kokoro-multi-lang-v1_0.tar.bz2", "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
+            TtsModelSpec("kokoro-multi", "Kokoro v1.1 · English + Chinese", ModelFamily.KOKORO, "en", "${base}kokoro-multi-lang-v1_1.tar.bz2", "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
+            TtsModelSpec("kokoro-multi-int8", "Kokoro v1.1 INT8 · English + Chinese", ModelFamily.KOKORO, "en", "${base}kokoro-int8-multi-lang-v1_1.tar.bz2", "model.int8.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
+            TtsModelSpec("supertonic-es", "Supertonic 3 INT8 · Spanish", ModelFamily.SUPERTONIC, "es", "${base}sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2", "", experimental = false, licenseSpdx = "OpenRAIL-M", licenseUrl = "https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE", attribution = "Supertone Inc.", requiresAcceptance = true),
         )
 
     val languages: List<String> = models.map { it.language }.distinct().sorted()
+
+    fun edgeVoice(shortName: String, displayName: String, language: String): TtsModelSpec =
+        TtsModelSpec(
+            id = "edge-" + shortName.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-'),
+            name = "Edge · $displayName",
+            family = ModelFamily.EDGE,
+            language = language,
+            archiveName = "",
+            modelName = "",
+            edgeVoice = shortName,
+        )
 }

@@ -17,3 +17,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "BookReader"
 include(":app")
+include(":shared")
+include(":desktop")

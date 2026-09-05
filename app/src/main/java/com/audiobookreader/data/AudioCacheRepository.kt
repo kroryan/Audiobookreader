@@ -22,14 +22,14 @@ class AudioCacheRepository(context: Context) {
     fun status(book: Book, model: TtsModelSpec): AudioCacheStatus {
         val expected = book.chapters.sumOf { TextChunker.split(it.text).size }
         val directory = File(root, "${book.id}/${model.id}")
-        val generated = directory.listFiles()?.count { it.extension == "wav" } ?: 0
+        val generated = directory.listFiles()?.count { it.isAudioChunk() } ?: 0
         val bytes = directory.walkTopDown().filter { it.isFile }.sumOf { it.length() }
         return AudioCacheStatus(book.id, model.id, generated, expected, bytes)
     }
 
     fun readyChunks(bookId: String, modelId: String): Set<Int> =
         File(root, "$bookId/$modelId").listFiles().orEmpty()
-            .filter { it.extension == "wav" && it.length() > 44L }
+            .filter { it.isAudioChunk() && it.length() > MIN_AUDIO_BYTES }
             .mapNotNull { it.nameWithoutExtension.substringAfterLast('-').toIntOrNull() }
             .toSet()
 
@@ -37,16 +37,20 @@ class AudioCacheRepository(context: Context) {
         if (lastIndex < 0) return emptyList()
         val files = File(root, "$bookId/$modelId").listFiles().orEmpty()
         return (0..lastIndex).map { index ->
-            files.firstOrNull { it.name.endsWith("-$index.wav") && it.length() > 44L }
+            files.firstOrNull { it.isAudioChunk(index) && it.length() > MIN_AUDIO_BYTES }
                 ?: return null
         }.map(File::getAbsolutePath)
     }
 
     fun durationMs(bookId: String, modelId: String, index: Int): Long {
         val file = File(root, "$bookId/$modelId").listFiles().orEmpty()
-            .firstOrNull { it.name.endsWith("-$index.wav") && it.length() > 44L }
+            .firstOrNull { it.isAudioChunk(index) && it.length() > MIN_AUDIO_BYTES }
             ?: return 0L
-        return com.audiobookreader.playback.WavFile.durationMs(file)
+        return if (file.extension == "wav") {
+            com.audiobookreader.playback.WavFile.durationMs(file)
+        } else {
+            com.audiobookreader.playback.AudioFile.durationMs(file)
+        }
     }
 
     fun clearModel(bookId: String, modelId: String) {
@@ -59,16 +63,16 @@ class AudioCacheRepository(context: Context) {
         val directory = File(root, "$bookId/$modelId")
         directory.listFiles().orEmpty()
             .filter { file ->
-                val isTemporary = file.name.endsWith(".wav.part")
-                val index = file.nameWithoutExtension.substringBeforeLast(".wav").substringAfterLast('-').toIntOrNull()
-                (isTemporary || file.extension == "wav") && index?.let { it >= firstChunk } == true
+                val isTemporary = file.name.endsWith(".wav.part") || file.name.endsWith(".mp3.part")
+                val index = file.nameWithoutExtension.substringBeforeLast('.').substringAfterLast('-').toIntOrNull()
+                (isTemporary || file.isAudioChunk()) && index?.let { it >= firstChunk } == true
             }
             .forEach(File::delete)
     }
 
     fun clearTemporary(bookId: String, modelId: String) {
         File(root, "$bookId/$modelId").listFiles().orEmpty()
-            .filter { it.name.endsWith(".wav.part") }
+            .filter { it.name.endsWith(".wav.part") || it.name.endsWith(".mp3.part") }
             .forEach(File::delete)
     }
 
@@ -79,5 +83,14 @@ class AudioCacheRepository(context: Context) {
         return current + bytesToAdd <= MAX_BYTES
     }
 
-    companion object { const val MAX_BYTES = 512L * 1024L * 1024L }
+    private fun File.isAudioChunk(index: Int? = null): Boolean {
+        val extensionMatches = extension == "wav" || extension == "mp3"
+        val indexMatches = index == null || nameWithoutExtension.substringAfterLast('-').toIntOrNull() == index
+        return extensionMatches && indexMatches
+    }
+
+    companion object {
+        const val MAX_BYTES = 512L * 1024L * 1024L
+        private const val MIN_AUDIO_BYTES = 44L
+    }
 }

@@ -10,6 +10,8 @@ Android PDF/EPUB/text reader with local text-to-speech and background playback.
 - Models are downloaded and used inside the app; they are not registered as system TTS engines.
 - After a download completes, the model is selected automatically and its actual contents are validated, including packages containing nested directories.
 - `OfflineTts` adapter for Piper/VITS, Coqui VITS, Mimic3 VITS, Kokoro, and Supertonic.
+- Edge TTS voices loaded from the live public voice catalogue and marked `ONLINE`; no Edge model files are bundled or downloaded.
+- License-aware downloads: models with additional conditions show their license, attribution, obligations, and accept/reject action before downloading.
 - Chunk-based PCM-to-WAV generation with a Media3 playlist.
 - Resumable progressive generation: playback starts after the first chunks are ready, and temporary look-ahead audio is removed when an unfinished book is stopped.
 - `MediaSessionService` for notifications, system controls, lock-screen playback, and playback outside the app.
@@ -22,8 +24,13 @@ Android PDF/EPUB/text reader with local text-to-speech and background playback.
 - Light/dark theme automatically follows the system theme, with reading-specific contrast.
 - Local ONNX model import from Settings. The user provides an ISO 639-1/639-2/639-3 language code (`es` or `spa`, for example), and `tokens.txt` is required; `.onnx.json`, lexicons, and other auxiliary files can also be selected. Files are stored inside BookReader's private sandbox.
 - Original app icon in `assets/bookreader-icon.png`, also used by the APK.
+- Third-party credits and license references are available in `THIRD_PARTY_NOTICES.md` and in the installed app assets.
 
 The project is intended for Android Studio. The verified debug build is generated at `app/build/outputs/apk/debug/app-debug.apk`. The APK contains the native engine, but no TTS models or WAV files; both are managed at runtime.
+
+## Desktop targets
+
+The desktop module is being migrated from the shared Kotlin core. It targets Linux and Windows through Compose Desktop. Linux packaging uses `:desktop:packageDeb` plus `scripts/package-appimage.sh`; Windows packaging uses `:desktop:packageMsi` and `:desktop:packageExe` on a Windows build machine. Native installers must be built on their target operating system.
 
 ## Release signing
 
@@ -39,11 +46,6 @@ The list was cross-checked against `scripts/apk/generate-tts-apk-script.py` from
 - Supertonic 3 INT8: Spanish and other languages in a multilingual package.
 
 Kokoro Spanish requires separate validation: the original Kokoro-82M voice catalog includes Spanish (`ef_dora`, `em_alex`, `em_santa`), but the official packages currently documented by Sherpa-ONNX as `kokoro-multi-lang-v1_0/v1_1` are published and configured for English and Chinese. Spanish voices on the device still need a compatible conversion and frontend/phonemizer validation; they should not be presented as finished support until correct audio is confirmed on an ARM phone.
-
-## Planned improvements
-
-1. Validate Kokoro Spanish and decide whether to ship it as an official package, converted model, or separate backend.
-2. Add model license and size information through a versioned manifest.
 
 ## Technical references
 

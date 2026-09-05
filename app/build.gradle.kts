@@ -19,8 +19,8 @@ android {
         applicationId = "com.audiobookreader"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.1.4"
+        versionCode = 6
+        versionName = "0.1.5"
     }
 
     signingConfigs {
@@ -61,6 +61,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":shared"))
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
@@ -75,6 +76,9 @@ dependencies {
     // Playback and MediaSession keep audio alive while the screen is locked/backgrounded.
     implementation("androidx.media3:media3-exoplayer:1.2.1")
     implementation("androidx.media3:media3-session:1.2.1")
+
+    // Edge TTS uses its public WebSocket Read Aloud protocol for online voices.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // sherpa-onnx Android AAR + Kotlin API. Version follows the checked-out upstream repo.
     implementation("com.github.k2-fsa:sherpa-onnx:1.13.7") {

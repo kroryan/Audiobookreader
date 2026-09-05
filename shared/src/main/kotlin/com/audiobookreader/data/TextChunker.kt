@@ -1,8 +1,7 @@
 package com.audiobookreader.data
 
 object TextChunker {
-    // Short chunks keep Piper/Coqui native buffers bounded on phones and let
-    // playback begin while the rest of a long book is still being prepared.
+    // Shared by Android and desktop so paragraph boundaries and progress stay compatible.
     fun split(text: String, maxChars: Int = 700): List<String> {
         val sentences = text.replace(Regex("\\s+"), " ").trim()
             .split(Regex("(?<=[.!?。！？])\\s+"))

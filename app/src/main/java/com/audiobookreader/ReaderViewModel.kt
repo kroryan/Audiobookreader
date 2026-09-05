@@ -21,7 +21,10 @@ import com.audiobookreader.data.LanguageCodes
 import com.audiobookreader.data.BookTtsSettings
 import com.audiobookreader.playback.PlaybackService
 import com.audiobookreader.playback.WavFile
+import com.audiobookreader.playback.AudioFile
 import com.audiobookreader.tts.SherpaTtsEngine
+import com.audiobookreader.tts.EdgeVoiceRepository
+import com.audiobookreader.data.ModelFamily
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
@@ -57,9 +60,10 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     private val models = ModelRepository(appContext)
     private val progressRepository = ProgressRepository(appContext)
     private val audioCache = AudioCacheRepository(appContext)
+    private val edgeVoices = EdgeVoiceRepository(appContext)
     private val settings = appContext.getSharedPreferences("bookreader-settings", Context.MODE_PRIVATE)
     private val initialLanguage = AppLanguage.fromCode(settings.getString(KEY_APP_LANGUAGE, null))
-    private val allModels = ModelCatalog.models + models.importedModels()
+    private val allModels = ModelCatalog.models + edgeVoices.cachedVoices() + models.importedModels()
     private val initialModel = allModels.firstOrNull {
         it.id == settings.getString(KEY_SELECTED_MODEL, null)
     } ?: allModels.first()
@@ -69,6 +73,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
 
     init {
         refreshModels()
+        refreshEdgeVoices()
         restoreLibrary()
     }
 
@@ -413,65 +418,17 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                     TextChunker.split(chapter.text).map { chunk -> chapter.id to chunk }
                 }
                 check(chunks.isNotEmpty()) { "El libro no contiene texto reproducible" }
-                val saved = progressRepository.load(book.id)
-                val startFrom = requestedStart?.coerceIn(0, chunks.lastIndex)
-                val generationStart = startFrom ?: 0
-                var start = startFrom ?: if (saved.itemIndex >= chunks.size) 0 else saved.itemIndex.coerceIn(0, chunks.lastIndex)
-                var startPositionMs = if (saved.itemIndex >= chunks.size) 0L else saved.positionMs.coerceAtLeast(0L)
-                if (startFrom != null) startPositionMs = 0L
                 val cache = File(appContext.cacheDir, "audio/${book.id}/${spec.id}").also { it.mkdirs() }
                 val initialFiles = mutableListOf<String>()
-                val initialEnd: Int
-                SherpaTtsEngine(models.directory(spec), spec).use { engine ->
-                    var preparedDurationMs = 0L
-                    var end = chunks.size
-                    for (index in generationStart until chunks.size) {
-                        val file = renderChunk(cache, chunks[index], index, engine, ttsSettings)
-                        initialFiles += file.absolutePath
-                        preparedDurationMs += WavFile.durationMs(file, engine.sampleRate())
-                        val preparedCount = index - generationStart + 1
-                        val enoughChunks = preparedCount >= START_CHUNKS
-                        val enoughDuration = preparedDurationMs >= MIN_READY_DURATION_MS
-                        val enoughForStart = preparedCount >= maxOf(START_CHUNKS, start - generationStart + 1)
-                        if (enoughForStart && (enoughChunks || enoughDuration)) {
-                            end = index + 1
-                            break
-                        }
+                if (spec.family == ModelFamily.EDGE) {
+                    check(spec.edgeVoice.isNotBlank()) { "La voz Edge no es válida" }
+                    playWithRenderer(book, spec, requestedStart, chunks, initialFiles) { chunk, index ->
+                        renderEdgeChunk(cache, chunk, index, spec, ttsSettings)
                     }
-                    initialEnd = end
-                    val localStart = start - generationStart
-                    check(initialFiles.size > localStart) { "No se pudo preparar el punto seleccionado del libro" }
-                    val savedFileDuration = WavFile.durationMs(File(initialFiles[localStart]), engine.sampleRate())
-                    if (startFrom == null && startPositionMs >= savedFileDuration - END_TOLERANCE_MS) {
-                        if (start < chunks.lastIndex) {
-                            start += 1
-                            startPositionMs = 0L
-                        } else {
-                            // A play action at the end of a completed book
-                            // starts it again instead of appearing frozen.
-                            start = 0
-                            startPositionMs = 0L
-                        }
-                    }
-                    val progress = ReadingProgress(book.id, start, startPositionMs, chunks.size)
-                    progressRepository.save(progress)
-                    PlaybackService.play(appContext, initialFiles, book.id, localStart, startPositionMs, chunks.size, generationStart)
-                    withContext(Dispatchers.Main) {
-                        _state.value = _state.value.copy(
-                            generating = false,
-                            pendingStartIndex = null,
-                            progress = progress,
-                            cacheStatus = audioCache.status(book, spec),
-                            readyChunks = audioCache.readyChunks(book.id, spec.id),
-                            currentDurationMs = audioCache.durationMs(book.id, spec.id, start),
-                            message = "Reproduciendo; preparando el resto en segundo plano…",
-                        )
-                    }
-                    for (index in initialEnd until chunks.size) {
-                        val file = renderChunk(cache, chunks[index], index, engine, ttsSettings)
-                        PlaybackService.append(appContext, listOf(file.absolutePath), book.id)
-                        withContext(Dispatchers.Main) {
-                            _state.value = _state.value.copy(cacheStatus = audioCache.status(book, spec), readyChunks = audioCache.readyChunks(book.id, spec.id))
+                } else {
+                    SherpaTtsEngine(models.directory(spec), spec).use { engine ->
+                        playWithRenderer(book, spec, requestedStart, chunks, initialFiles) { chunk, index ->
+                            renderChunk(cache, chunk, index, engine, ttsSettings)
                         }
                     }
                 }
@@ -512,12 +469,127 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         return output
     }
 
+    private suspend fun renderEdgeChunk(
+        cache: File,
+        chunk: Pair<String, String>,
+        index: Int,
+        spec: TtsModelSpec,
+        ttsSettings: BookTtsSettings,
+    ): File {
+        val output = File(cache, "${chunk.first}-$index.mp3")
+        if (!output.exists()) {
+            val temporary = File(cache, ".${chunk.first}-$index.mp3.part")
+            temporary.delete()
+            check(audioCache.canWriteMore(1024L * 1024L)) {
+                "La caché de audio ha alcanzado 512 MB. Límpiala para continuar."
+            }
+            edgeVoices.client().synthesizeToFile(
+                text = chunk.second,
+                voice = spec.edgeVoice,
+                language = spec.language,
+                speed = ttsSettings.speed,
+                output = temporary,
+            )
+            check(temporary.length() > 44L) { "Edge TTS devolvió un archivo vacío" }
+            check(audioCache.canWriteMore(temporary.length())) {
+                temporary.delete()
+                "La caché de audio ha alcanzado 512 MB. Límpiala para continuar."
+            }
+            check(temporary.renameTo(output)) { "No se pudo guardar el fragmento Edge" }
+        }
+        return output
+    }
+
+    private suspend fun playWithRenderer(
+        book: Book,
+        spec: TtsModelSpec,
+        requestedStart: Int?,
+        chunks: List<Pair<String, String>>,
+        initialFiles: MutableList<String>,
+        render: suspend (Pair<String, String>, Int) -> File,
+    ) {
+        val saved = progressRepository.load(book.id)
+        val startFrom = requestedStart?.coerceIn(0, chunks.lastIndex)
+        val generationStart = startFrom ?: 0
+        var start = startFrom ?: if (saved.itemIndex >= chunks.size) 0 else saved.itemIndex.coerceIn(0, chunks.lastIndex)
+        var startPositionMs = if (saved.itemIndex >= chunks.size) 0L else saved.positionMs.coerceAtLeast(0L)
+        if (startFrom != null) startPositionMs = 0L
+        var preparedDurationMs = 0L
+        var initialEnd = chunks.size
+        for (index in generationStart until chunks.size) {
+            val file = render(chunks[index], index)
+            initialFiles += file.absolutePath
+            preparedDurationMs += audioDurationMs(file)
+            val preparedCount = index - generationStart + 1
+            val enoughChunks = preparedCount >= START_CHUNKS
+            val enoughDuration = preparedDurationMs >= MIN_READY_DURATION_MS
+            val enoughForStart = preparedCount >= maxOf(START_CHUNKS, start - generationStart + 1)
+            if (enoughForStart && (enoughChunks || enoughDuration)) {
+                initialEnd = index + 1
+                break
+            }
+        }
+        val localStart = start - generationStart
+        check(initialFiles.size > localStart) { "No se pudo preparar el punto seleccionado del libro" }
+        val savedFileDuration = audioDurationMs(File(initialFiles[localStart]))
+        if (startFrom == null && startPositionMs >= savedFileDuration - END_TOLERANCE_MS) {
+            if (start < chunks.lastIndex) {
+                start += 1
+                startPositionMs = 0L
+            } else {
+                start = 0
+                startPositionMs = 0L
+            }
+        }
+        val progress = ReadingProgress(book.id, start, startPositionMs, chunks.size)
+        progressRepository.save(progress)
+        PlaybackService.play(appContext, initialFiles, book.id, localStart, startPositionMs, chunks.size, generationStart)
+        withContext(Dispatchers.Main) {
+            _state.value = _state.value.copy(
+                generating = false,
+                pendingStartIndex = null,
+                progress = progress,
+                cacheStatus = audioCache.status(book, spec),
+                readyChunks = audioCache.readyChunks(book.id, spec.id),
+                currentDurationMs = audioCache.durationMs(book.id, spec.id, start),
+                message = "Reproduciendo; preparando el resto en segundo plano…",
+            )
+        }
+        for (index in initialEnd until chunks.size) {
+            val file = render(chunks[index], index)
+            PlaybackService.append(appContext, listOf(file.absolutePath), book.id)
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(
+                    cacheStatus = audioCache.status(book, spec),
+                    readyChunks = audioCache.readyChunks(book.id, spec.id),
+                )
+            }
+        }
+    }
+
+    private fun audioDurationMs(file: File): Long =
+        if (file.extension == "wav") WavFile.durationMs(file) else AudioFile.durationMs(file)
+
     private fun refreshModels() {
-        val available = ModelCatalog.models + models.importedModels()
+        val edge = _state.value.availableModels.filter { it.family == ModelFamily.EDGE }
+        val available = ModelCatalog.models + edge + models.importedModels()
         _state.value = _state.value.copy(
             availableModels = available,
             installed = available.filter(models::isInstalled).map { it.id }.toSet(),
         )
+    }
+
+    private fun refreshEdgeVoices() {
+        viewModelScope.launch {
+            val downloaded = edgeVoices.load()
+            val available = (ModelCatalog.models + downloaded + models.importedModels()).distinctBy { it.id }
+            val selected = available.firstOrNull { it.id == _state.value.selectedModel.id } ?: _state.value.selectedModel
+            _state.value = _state.value.copy(
+                availableModels = available,
+                selectedModel = selected,
+                installed = available.filter(models::isInstalled).map { it.id }.toSet(),
+            )
+        }
     }
 
     private fun restoreLibrary() {

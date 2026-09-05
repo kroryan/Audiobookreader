@@ -53,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
@@ -230,7 +231,7 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
                         Box {
                             Button(onClick = { modelMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) { Text(state.selectedModel.name, maxLines = 1) }
                             DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
-                                state.availableModels.filter { it.id == state.selectedModel.id || state.installed.contains(it.id) }
+                                state.availableModels.filter { it.family == ModelFamily.EDGE || it.id == state.selectedModel.id || state.installed.contains(it.id) }
                                     .forEach { model ->
                                         DropdownMenuItem(
                                             text = { Text(model.name) },
@@ -348,6 +349,7 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
 private fun ModelScreen(state: ReaderState, viewModel: ReaderViewModel, strings: UiStrings) {
     var expanded by remember { mutableStateOf(false) }
     var language by rememberSaveable { mutableStateOf("all") }
+    var pendingLicenseModel by remember { mutableStateOf<TtsModelSpec?>(null) }
     val languages = state.availableModels.map { it.language }.filter { it != "all" }.distinct().sorted()
     val visibleModels = state.availableModels.filter { language == "all" || it.language == language || it.language == "all" }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -362,23 +364,79 @@ private fun ModelScreen(state: ReaderState, viewModel: ReaderViewModel, strings:
                 }
             }
         }
-        items(visibleModels, key = { it.id }) { spec -> ModelCard(spec, state, viewModel, strings) }
+        items(visibleModels, key = { it.id }) { spec ->
+            ModelCard(spec, state, viewModel, strings) { pendingLicenseModel = it }
+        }
+    }
+    pendingLicenseModel?.let { spec ->
+        val spanish = state.appLanguage == AppLanguage.SPANISH
+        AlertDialog(
+            onDismissRequest = { pendingLicenseModel = null },
+            title = { Text(if (spanish) "Condiciones de uso del modelo" else "Model usage terms") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(spec.name, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (spanish) {
+                            "Este modelo tiene condiciones de licencia que debes revisar antes de descargarlo."
+                        } else {
+                            "This model has license terms you must review before downloading it."
+                        }
+                    )
+                    Text("License: ${spec.licenseSpdx}")
+                    if (spec.attribution.isNotBlank()) Text("Attribution: ${spec.attribution}")
+                    Text(
+                        if (spanish) {
+                            "Al aceptar, confirmas que usarás el modelo respetando sus condiciones, incluyendo cualquier restricción de uso, atribución o ShareAlike aplicable."
+                        } else {
+                            "By accepting, you confirm that you will use the model according to its terms, including any applicable use restrictions, attribution, or ShareAlike requirements."
+                        }
+                    )
+                    if (spec.licenseUrl.isNotBlank()) {
+                        Text(spec.licenseUrl, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.downloadModel(spec)
+                    pendingLicenseModel = null
+                }) {
+                    Text(if (spanish) "Aceptar y descargar" else "Accept and download")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingLicenseModel = null }) {
+                    Text(if (spanish) "Rechazar" else "Reject")
+                }
+            },
+        )
     }
 }
 
 @Composable
-private fun ModelCard(spec: TtsModelSpec, state: ReaderState, viewModel: ReaderViewModel, strings: UiStrings) {
+private fun ModelCard(
+    spec: TtsModelSpec,
+    state: ReaderState,
+    viewModel: ReaderViewModel,
+    strings: UiStrings,
+    onLicenseRequired: (TtsModelSpec) -> Unit,
+) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Text(spec.name, style = MaterialTheme.typography.titleMedium)
-            Text("${if (spec.archiveName.isBlank()) strings.imported else spec.family.label()} · ${strings.languageLabel(spec.language)}")
+            Text("${if (spec.family == ModelFamily.EDGE) "Edge TTS" else if (spec.archiveName.isBlank()) strings.imported else spec.family.label()} · ${strings.languageLabel(spec.language)}")
             if (spec.experimental) Text(strings.experimental)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 if (state.selectedModel.id == spec.id) Text("${strings.selected}  ")
                 TextButton(onClick = { viewModel.selectModel(spec) }) { Text(strings.use) }
-                if (state.installed.contains(spec.id)) Text(strings.downloaded)
+                if (spec.family == ModelFamily.EDGE) {
+                    Text("ONLINE", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                } else if (state.installed.contains(spec.id)) Text(strings.downloaded)
                 else if (state.downloading == spec.id) Text("${state.downloadProgress}%")
-                else TextButton(onClick = { viewModel.downloadModel(spec) }) { Text(strings.download) }
+                else TextButton(onClick = {
+                    if (spec.requiresAcceptance) onLicenseRequired(spec) else viewModel.downloadModel(spec)
+                }) { Text(strings.download) }
             }
             if (state.downloading == spec.id) LinearProgressIndicator((state.downloadProgress / 100f).coerceIn(0f, 1f), Modifier.fillMaxWidth())
         }
@@ -474,4 +532,5 @@ private fun ModelFamily.label() = when (this) {
     ModelFamily.KOKORO -> "Kokoro"
     ModelFamily.KITTEN -> "Kitten"
     ModelFamily.SUPERTONIC -> "Supertonic"
+    ModelFamily.EDGE -> "Edge TTS"
 }

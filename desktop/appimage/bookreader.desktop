@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=BookReader
+Comment=Read books aloud with downloadable local voices
+Exec=AppRun
+Icon=bookreader
+Type=Application
+Categories=AudioVideo;Audio;Viewer;
+Terminal=false

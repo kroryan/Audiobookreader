@@ -34,6 +34,7 @@ class ModelRepository(context: Context) {
     }
 
     fun isInstalled(spec: TtsModelSpec): Boolean {
+        if (spec.family == ModelFamily.EDGE) return true
         val rootDir = rootDir(spec)
         val marker = File(rootDir, INSTALL_MARKER)
         // The marker is written only after the archive has been fully extracted
