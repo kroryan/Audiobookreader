@@ -17,6 +17,7 @@ import com.audiobookreader.data.ProgressRepository
 import com.audiobookreader.data.ReadingProgress
 import com.audiobookreader.data.TtsModelSpec
 import com.audiobookreader.data.TextChunker
+import com.audiobookreader.data.SpeechText
 import com.audiobookreader.data.LanguageCodes
 import com.audiobookreader.data.BookTtsSettings
 import com.audiobookreader.playback.PlaybackService
@@ -457,7 +458,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         if (!output.exists()) {
             val temporary = File(cache, ".${chunk.first}-$index.wav.part")
             temporary.delete()
-            val samples = engine.generate(chunk.second, ttsSettings.speakerId, ttsSettings.speed)
+            val samples = engine.generate(SpeechText.forOfflineTts(chunk.second), ttsSettings.speakerId, ttsSettings.speed)
             val estimatedBytes = samples.size.toLong() * 2L + 44L
             check(audioCache.canWriteMore(estimatedBytes)) {
                 "La caché de audio ha alcanzado 512 MB. Límpiala para continuar."

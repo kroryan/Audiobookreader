@@ -1,6 +1,7 @@
 package com.audiobookreader.tts
 
 import com.audiobookreader.data.ModelCatalog
+import com.audiobookreader.data.SpeechText
 import com.audiobookreader.data.TtsModelSpec
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.OkHttpClient
@@ -158,13 +159,22 @@ class EdgeTtsClient {
         val locale = voice.substringBeforeLast('-').ifBlank { language }
         val rate = ((speed.coerceIn(0.5f, 2.5f) - 1f) * 100f).toInt()
         val rateText = if (rate >= 0) "+${rate}%" else "${rate}%"
-        val safeText = escapeXml(text).filter { it == '\n' || it == '\r' || it == '\t' || it.code >= 0x20 }
+        val safeText = edgeSsmlText(text)
         return "X-RequestId:$requestId\r\n" +
             "Content-Type:application/ssml+xml\r\n" +
             "X-Timestamp:${timestamp}Z\r\n" +
             "Path:ssml\r\n\r\n" +
             "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='$locale'>" +
             "<voice name='$voice'><prosody rate='$rateText' pitch='+0Hz' volume='+0%'>$safeText</prosody></voice></speak>"
+    }
+
+    private fun edgeSsmlText(text: String): String {
+        val normalized = SpeechText.forEdgeTts(text)
+        val escaped = escapeXml(normalized)
+            .filter { it == '\n' || it == '\r' || it == '\t' || it.code >= 0x20 }
+        return escaped
+            .replace("…", "<break time='550ms'/>")
+            .replace(Regex("\\s*[—–]\\s*"), "<break time='350ms'/>")
     }
 
     private fun escapeXml(value: String): String = value

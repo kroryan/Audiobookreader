@@ -43,9 +43,9 @@ import com.audiobookreader.data.AppLanguage
 import com.audiobookreader.data.TextChunker
 import com.audiobookreader.data.TtsModelSpec
 import kotlinx.coroutines.launch
-import java.awt.FileDialog
-import java.awt.Frame
 import java.io.File
+import javax.swing.JFileChooser
+import javax.swing.filechooser.FileNameExtensionFilter
 
 fun main() = application {
     Window(onCloseRequest = ::exitApplication, title = "BookReader") {
@@ -91,11 +91,17 @@ private fun DesktopApp() {
                     selectedFile = selectedFile,
                     text = text,
                     onOpen = {
-                        val dialog = FileDialog(null as Frame?, "Open book", FileDialog.LOAD)
-                        dialog.isVisible = true
-                        dialog.file?.let { name ->
-                            selectedFile = File(dialog.directory, name)
-                            text = selectedFile?.readText().orEmpty()
+                        val chooser = JFileChooser().apply {
+                            dialogTitle = "Open book"
+                            fileFilter = FileNameExtensionFilter(
+                                "Books and documents (PDF, EPUB, TXT, HTML)",
+                                "pdf", "epub", "txt", "html", "htm",
+                            )
+                        }
+                        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                            selectedFile = chooser.selectedFile
+                            text = runCatching { DesktopBookReader.read(chooser.selectedFile) }
+                                .getOrElse { "Could not open ${chooser.selectedFile.name}: ${it.message}" }
                         }
                     },
                 )

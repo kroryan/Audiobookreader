@@ -25,4 +25,22 @@ class TextChunkerTest {
         assertFalse(chunks.any { it.contains("palab ra") })
         assertEquals(source, chunks.joinToString(" ").replace("\n\n", " "))
     }
+
+    @Test
+    fun keepsSeparatePdfParagraphsAsSeparateBlocks() {
+        val normalized = TextChunker.normalizeDocumentText("Diálogo primero.\n\n— Acotación después.")
+
+        assertEquals("Diálogo primero.\n\n— Acotación después.", normalized)
+        assertEquals(2, TextChunker.split(normalized, maxChars = 700).single().split("\n\n").size)
+    }
+
+    @Test
+    fun convertsEllipsisAndLongDashesForOfflineSpeech() {
+        val speech = SpeechText.forOfflineTts("Espera... — dijo ella.\n\nLuego continuó.")
+
+        assertTrue(speech.contains("…"))
+        assertFalse(speech.contains("—"))
+        assertFalse(speech.contains("..."))
+        assertFalse(speech.contains("\n\n"))
+    }
 }

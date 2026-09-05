@@ -87,6 +87,11 @@ class BookRepository(private val context: Context) {
         val document = context.contentResolver.openInputStream(uri).use { PDDocument.load(it) }
         document.use { pdf ->
             val stripper = PDFTextStripper()
+            // PDFBox otherwise emits visual line wraps as ordinary newlines.
+            // Explicit paragraph markers let TextChunker retain real paragraph breaks.
+            stripper.lineSeparator = "\n"
+            stripper.paragraphStart = "\n\n"
+            stripper.paragraphEnd = "\n\n"
             return pdf.pages.mapIndexed { index, _ ->
                 stripper.startPage = index + 1
                 stripper.endPage = index + 1

@@ -24,6 +24,8 @@ dependencies {
     implementation(compose.material)
     implementation("org.apache.commons:commons-compress:1.26.1")
     implementation("org.json:json:20240303")
+    implementation("org.apache.pdfbox:pdfbox:2.0.30")
+    implementation("org.jsoup:jsoup:1.17.2")
 }
 
 compose.desktop {
@@ -31,7 +33,7 @@ compose.desktop {
         mainClass = "com.audiobookreader.desktop.MainKt"
         nativeDistributions {
             packageName = "BookReader"
-            packageVersion = "0.1.6"
+            packageVersion = "0.1.7"
             description = "Read books aloud with downloadable local voices"
             vendor = "BookReader"
             targetFormats(TargetFormat.Deb, TargetFormat.AppImage, TargetFormat.Msi, TargetFormat.Exe)
