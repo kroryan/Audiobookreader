@@ -31,6 +31,7 @@ class PlaybackService : MediaSessionService() {
     private val handler = Handler(Looper.getMainLooper())
     private var bookId: String? = null
     private var itemCount: Int = 0
+    private var baseIndex: Int = 0
     private val progressTask = object : Runnable {
         override fun run() {
             saveProgress()
@@ -105,6 +106,7 @@ class PlaybackService : MediaSessionService() {
             val startAt = intent.getIntExtra(EXTRA_START, 0)
             bookId = intent.getStringExtra(EXTRA_BOOK_ID)
             itemCount = intent.getIntExtra(EXTRA_ITEM_COUNT, paths.size)
+            baseIndex = intent.getIntExtra(EXTRA_BASE_INDEX, 0).coerceAtLeast(0)
             val startPosition = intent.getLongExtra(EXTRA_POSITION, 0L)
             if (paths.isNotEmpty()) {
                 player.setMediaItems(paths.map { MediaItem.fromUri(Uri.fromFile(java.io.File(it))) }, startAt, startPosition)
@@ -130,11 +132,12 @@ class PlaybackService : MediaSessionService() {
             ACTION_SEEK_TO -> {
                 val index = intent.getIntExtra(EXTRA_SEEK_INDEX, -1)
                 val position = intent.getLongExtra(EXTRA_SEEK_POSITION, 0L).coerceAtLeast(0L)
-                if (index in 0 until player.mediaItemCount) {
-                    player.seekTo(index, position)
+                val localIndex = index - baseIndex
+                if (localIndex in 0 until player.mediaItemCount) {
+                    player.seekTo(localIndex, position)
                     player.play()
                     publishProgress(index, position)
-                } else if (index == player.currentMediaItemIndex && index >= 0) {
+                } else if (index == baseIndex + player.currentMediaItemIndex && localIndex >= 0) {
                     player.seekTo(position)
                     player.play()
                     publishProgress(index, position)
@@ -149,6 +152,7 @@ class PlaybackService : MediaSessionService() {
                     // Move the player first so the shutdown save cannot restore the old position.
                     player.seekTo(0, 0L)
                     player.stop()
+                    baseIndex = 0
                 }
                 if (!resetBookId.isNullOrBlank()) {
                     progressRepository.save(ReadingProgress(resetBookId, 0, 0L, resetItemCount))
@@ -198,6 +202,7 @@ class PlaybackService : MediaSessionService() {
         private const val EXTRA_POSITION = "position"
         private const val EXTRA_BOOK_ID = "bookId"
         private const val EXTRA_ITEM_COUNT = "itemCount"
+        private const val EXTRA_BASE_INDEX = "baseIndex"
         private const val EXTRA_SEEK_INDEX = "seekIndex"
         private const val EXTRA_SEEK_POSITION = "seekPosition"
         private const val CHANNEL_ID = "bookreader-playback"
@@ -205,7 +210,7 @@ class PlaybackService : MediaSessionService() {
         private const val SEEK_BACK_MS = 15_000L
         private const val SEEK_FORWARD_MS = 30_000L
 
-        fun play(context: Context, files: List<String>, bookId: String, startAt: Int = 0, positionMs: Long = 0L, itemCount: Int = files.size) {
+        fun play(context: Context, files: List<String>, bookId: String, startAt: Int = 0, positionMs: Long = 0L, itemCount: Int = files.size, baseIndex: Int = 0) {
             val intent = Intent(context, PlaybackService::class.java)
                 .setAction(ACTION_PLAY)
                 .putExtra(EXTRA_PATHS, files.toTypedArray())
@@ -213,6 +218,7 @@ class PlaybackService : MediaSessionService() {
                 .putExtra(EXTRA_POSITION, positionMs)
                 .putExtra(EXTRA_BOOK_ID, bookId)
                 .putExtra(EXTRA_ITEM_COUNT, itemCount)
+                .putExtra(EXTRA_BASE_INDEX, baseIndex)
             ContextCompat.startForegroundService(context, intent)
         }
 
@@ -248,12 +254,12 @@ class PlaybackService : MediaSessionService() {
 
     private fun saveProgress() {
         val id = bookId ?: return
-        if (player.playbackState == Player.STATE_ENDED && player.mediaItemCount >= itemCount && itemCount > 0) {
+        if (player.playbackState == Player.STATE_ENDED && baseIndex + player.mediaItemCount >= itemCount && itemCount > 0) {
             progressRepository.save(ReadingProgress(id, itemCount, 0L, itemCount))
             publishProgress(itemCount, 0L)
             return
         }
-        val index = player.currentMediaItemIndex.coerceAtLeast(0)
+        val index = (baseIndex + player.currentMediaItemIndex).coerceAtLeast(0)
         val position = player.currentPosition.coerceAtLeast(0L)
         progressRepository.save(ReadingProgress(id, index, position, itemCount))
         publishProgress()
@@ -261,7 +267,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun publishProgress(indexOverride: Int? = null, positionOverride: Long? = null) {
         val id = bookId ?: return
-        val index = indexOverride ?: player.currentMediaItemIndex.coerceAtLeast(0)
+        val index = indexOverride ?: (baseIndex + player.currentMediaItemIndex).coerceAtLeast(0)
         val position = positionOverride ?: player.currentPosition.coerceAtLeast(0L)
         sendBroadcast(Intent(ACTION_PROGRESS).setPackage(packageName)
             .putExtra(EXTRA_BOOK_ID, id)

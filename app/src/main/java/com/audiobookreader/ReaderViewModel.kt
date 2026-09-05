@@ -38,6 +38,7 @@ data class ReaderState(
     val availableModels: List<TtsModelSpec> = ModelCatalog.models,
     val selectedModel: TtsModelSpec = ModelCatalog.models.first(),
     val bookTtsSettings: BookTtsSettings = BookTtsSettings(ModelCatalog.models.first().id),
+    val pendingStartIndex: Int? = null,
     val progress: ReadingProgress? = null,
     val bookmarks: List<Bookmark> = emptyList(),
     val cacheStatus: AudioCacheStatus? = null,
@@ -85,6 +86,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                 _state.value = _state.value.copy(
                     books = (_state.value.books.filterNot { it.id == book.id } + book),
                     selectedBook = book,
+                    pendingStartIndex = null,
                     progress = progressRepository.load(book.id),
                     bookmarks = progressRepository.bookmarks(book.id),
                     bookTtsSettings = loadBookTtsSettings(book.id),
@@ -106,6 +108,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
             selectedBook = book,
             selectedModel = model,
             bookTtsSettings = bookSettings.copy(modelId = model.id),
+            pendingStartIndex = null,
             progress = saved,
             bookmarks = progressRepository.bookmarks(book.id),
             cacheStatus = audioCache.status(book, model),
@@ -230,6 +233,18 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         )
     }
 
+    /** Select a paragraph without starting playback; Play will generate from it. */
+    fun selectChunkForPlayback(index: Int) {
+        val current = _state.value
+        val book = current.selectedBook ?: return
+        val total = book.chapters.sumOf { TextChunker.split(it.text).size }
+        if (index !in 0 until total) return
+        _state.value = current.copy(
+            pendingStartIndex = index,
+            message = "Seleccionado el fragmento ${index + 1}; pulsa reproducir para empezar desde ahí",
+        )
+    }
+
     fun seekCurrentPosition(positionMs: Long) {
         val current = _state.value
         val progress = current.progress ?: return
@@ -293,6 +308,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
             withContext(Dispatchers.Main) {
                 _state.value = _state.value.copy(
                     progress = reset,
+                    pendingStartIndex = null,
                     generating = false,
                     cacheStatus = audioCache.status(book, _state.value.selectedModel),
                     message = "Posición del libro reiniciada",
@@ -379,6 +395,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         val book = current.selectedBook ?: return
         val spec = current.selectedModel
         val ttsSettings = current.bookTtsSettings
+        val requestedStart = current.pendingStartIndex
         if (generationJob?.isActive == true) {
             _state.value = current.copy(message = "El audio ya se está preparando en segundo plano")
             return
@@ -397,29 +414,35 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                 }
                 check(chunks.isNotEmpty()) { "El libro no contiene texto reproducible" }
                 val saved = progressRepository.load(book.id)
-                var start = if (saved.itemIndex >= chunks.size) 0 else saved.itemIndex.coerceIn(0, chunks.lastIndex)
+                val startFrom = requestedStart?.coerceIn(0, chunks.lastIndex)
+                val generationStart = startFrom ?: 0
+                var start = startFrom ?: if (saved.itemIndex >= chunks.size) 0 else saved.itemIndex.coerceIn(0, chunks.lastIndex)
                 var startPositionMs = if (saved.itemIndex >= chunks.size) 0L else saved.positionMs.coerceAtLeast(0L)
+                if (startFrom != null) startPositionMs = 0L
                 val cache = File(appContext.cacheDir, "audio/${book.id}/${spec.id}").also { it.mkdirs() }
                 val initialFiles = mutableListOf<String>()
                 val initialEnd: Int
                 SherpaTtsEngine(models.directory(spec), spec).use { engine ->
                     var preparedDurationMs = 0L
                     var end = chunks.size
-                    for (index in chunks.indices) {
+                    for (index in generationStart until chunks.size) {
                         val file = renderChunk(cache, chunks[index], index, engine, ttsSettings)
                         initialFiles += file.absolutePath
                         preparedDurationMs += WavFile.durationMs(file, engine.sampleRate())
-                        val enoughChunks = index + 1 >= START_CHUNKS
+                        val preparedCount = index - generationStart + 1
+                        val enoughChunks = preparedCount >= START_CHUNKS
                         val enoughDuration = preparedDurationMs >= MIN_READY_DURATION_MS
-                        if (index + 1 >= maxOf(START_CHUNKS, start + 1) && (enoughChunks || enoughDuration)) {
+                        val enoughForStart = preparedCount >= maxOf(START_CHUNKS, start - generationStart + 1)
+                        if (enoughForStart && (enoughChunks || enoughDuration)) {
                             end = index + 1
                             break
                         }
                     }
                     initialEnd = end
-                    check(initialFiles.size > start) { "No se pudo preparar el punto guardado del libro" }
-                    val savedFileDuration = WavFile.durationMs(File(initialFiles[start]), engine.sampleRate())
-                    if (startPositionMs >= savedFileDuration - END_TOLERANCE_MS) {
+                    val localStart = start - generationStart
+                    check(initialFiles.size > localStart) { "No se pudo preparar el punto seleccionado del libro" }
+                    val savedFileDuration = WavFile.durationMs(File(initialFiles[localStart]), engine.sampleRate())
+                    if (startFrom == null && startPositionMs >= savedFileDuration - END_TOLERANCE_MS) {
                         if (start < chunks.lastIndex) {
                             start += 1
                             startPositionMs = 0L
@@ -432,10 +455,11 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                     }
                     val progress = ReadingProgress(book.id, start, startPositionMs, chunks.size)
                     progressRepository.save(progress)
-                    PlaybackService.play(appContext, initialFiles, book.id, start, startPositionMs, chunks.size)
+                    PlaybackService.play(appContext, initialFiles, book.id, localStart, startPositionMs, chunks.size, generationStart)
                     withContext(Dispatchers.Main) {
                         _state.value = _state.value.copy(
                             generating = false,
+                            pendingStartIndex = null,
                             progress = progress,
                             cacheStatus = audioCache.status(book, spec),
                             readyChunks = audioCache.readyChunks(book.id, spec.id),

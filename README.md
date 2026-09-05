@@ -15,7 +15,7 @@ MVP de lector de PDF/EPUB/texto para Android con síntesis local y reproducción
 - `MediaSessionService` para notificación, controles del sistema, pantalla bloqueada y salida de la aplicación.
 - Gadget multimedia persistente en la cortina y pantalla bloqueada con pausar/reanudar, retroceso de 15 segundos, avance de 30 segundos y detener.
 - Porcentaje de lectura, posición exacta por fragmento, marcadores, reinicio de posición y persistencia local del progreso.
-- Resaltado visual del fragmento completo que se está reproduciendo. El lector mantiene el scroll manual; los fragmentos de audio ya preparados se pueden tocar para saltar directamente a ellos.
+- Resaltado visual del fragmento completo que se está reproduciendo. El lector mantiene el scroll manual; cualquier fragmento se puede tocar para elegirlo como punto de inicio y reproducir desde ahí, aunque no esté preparado lo anterior.
 - Navegación por fragmentos anterior/siguiente y barra para buscar dentro del audio preparado.
 - Configuración independiente por libro: modelo descargado, velocidad de lectura y `speaker/voice ID`; al cambiar velocidad o voz se limpia el audio de ese modelo para regenerarlo sin mezclar configuraciones.
 - Porcentaje y tamaño del audio preparado por libro, limpieza individual o global de caché y límite de 512 MB para evitar llenar el almacenamiento.
