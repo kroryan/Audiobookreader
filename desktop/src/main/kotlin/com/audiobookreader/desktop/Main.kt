@@ -1,6 +1,7 @@
 package com.audiobookreader.desktop
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +13,8 @@ import androidx.compose.material.Button
 import androidx.compose.material.Card
 import androidx.compose.material.Checkbox
 import androidx.compose.material.AlertDialog
+import androidx.compose.material.DropdownMenu
+import androidx.compose.material.DropdownMenuItem
 import androidx.compose.material.darkColors
 import androidx.compose.material.lightColors
 import androidx.compose.material.LinearProgressIndicator
@@ -24,12 +27,14 @@ import androidx.compose.material.Slider
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -62,7 +67,12 @@ private fun DesktopApp() {
     var downloadingModel by remember { mutableStateOf<String?>(null) }
     var downloadProgress by remember { mutableStateOf(0) }
     var pendingLicenseModel by remember { mutableStateOf<TtsModelSpec?>(null) }
+    var availableModels by remember { mutableStateOf(ModelCatalog.models) }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        availableModels = ModelCatalog.models + runCatching { DesktopEdgeVoiceRepository().load() }.getOrDefault(emptyList())
+    }
 
     MaterialTheme(colors = if (darkMode) darkColors() else lightColors()) {
         Column(
@@ -91,6 +101,7 @@ private fun DesktopApp() {
                 )
                 1 -> ModelsScreen(
                     selectedModelId = selectedModelId,
+                    availableModels = availableModels,
                     downloadedModels = downloadedModels,
                     downloadingModel = downloadingModel,
                     downloadProgress = downloadProgress,
@@ -165,6 +176,7 @@ private fun LibraryScreen(selectedFile: File?, text: String, onOpen: () -> Unit)
 
 @Composable
 private fun ModelsScreen(
+    availableModels: List<TtsModelSpec>,
     selectedModelId: String,
     downloadedModels: Set<String>,
     downloadingModel: String?,
@@ -173,16 +185,29 @@ private fun ModelsScreen(
     onDownloadRequested: (TtsModelSpec) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
-    val models = remember(query) {
-        ModelCatalog.models.filter {
-            query.isBlank() || it.name.contains(query, ignoreCase = true) || it.language.contains(query, ignoreCase = true)
+    var language by remember { mutableStateOf("all") }
+    var languageMenuExpanded by remember { mutableStateOf(false) }
+    val languages = availableModels.map { it.language }.filter { it.isNotBlank() }.distinct().sorted()
+    val models = remember(query, language, availableModels) {
+        availableModels.filter {
+            (language == "all" || it.language == language || it.language == "all") &&
+                (query.isBlank() || it.name.contains(query, ignoreCase = true) || it.language.contains(query, ignoreCase = true))
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Models", style = MaterialTheme.typography.h5)
         Text("Choose the voice model used for audiobook playback.")
         TextField(value = query, onValueChange = { query = it }, label = { Text("Filter by model or language") }, modifier = Modifier.fillMaxWidth())
-        Text("${ModelCatalog.models.size} model packages available on demand")
+        Box {
+            Button(onClick = { languageMenuExpanded = true }) { Text("Language: ${if (language == "all") "All languages" else language.uppercase()}") }
+            DropdownMenu(expanded = languageMenuExpanded, onDismissRequest = { languageMenuExpanded = false }) {
+                DropdownMenuItem(onClick = { language = "all"; languageMenuExpanded = false }) { Text("All languages") }
+                languages.forEach { code ->
+                    DropdownMenuItem(onClick = { language = code; languageMenuExpanded = false }) { Text(code.uppercase()) }
+                }
+            }
+        }
+        Text("${availableModels.size} models and online voices available")
         LazyColumn(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(models) { model ->
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -197,6 +222,7 @@ private fun ModelsScreen(
                                 Text(if (model.id == selectedModelId) "Selected" else "Select")
                             }
                             when {
+                                model.family.name == "EDGE" -> Text("ONLINE", color = Color(0xFF2E7D32))
                                 model.id == downloadingModel -> {
                                     Text("$downloadProgress%")
                                     LinearProgressIndicator(progress = downloadProgress / 100f)

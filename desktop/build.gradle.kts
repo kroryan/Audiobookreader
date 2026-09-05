@@ -23,6 +23,7 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material)
     implementation("org.apache.commons:commons-compress:1.26.1")
+    implementation("org.json:json:20240303")
 }
 
 compose.desktop {
