@@ -11,8 +11,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.Button
 import androidx.compose.material.Card
 import androidx.compose.material.Checkbox
+import androidx.compose.material.AlertDialog
 import androidx.compose.material.darkColors
 import androidx.compose.material.lightColors
+import androidx.compose.material.LinearProgressIndicator
 import androidx.compose.material.Tab
 import androidx.compose.material.TabRow
 import androidx.compose.material.TextField
@@ -20,10 +22,12 @@ import androidx.compose.material.Divider
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Slider
 import androidx.compose.material.Text
+import androidx.compose.material.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -32,6 +36,8 @@ import androidx.compose.ui.window.application
 import com.audiobookreader.data.ModelCatalog
 import com.audiobookreader.data.AppLanguage
 import com.audiobookreader.data.TextChunker
+import com.audiobookreader.data.TtsModelSpec
+import kotlinx.coroutines.launch
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
@@ -51,6 +57,12 @@ private fun DesktopApp() {
     var interfaceLanguage by remember { mutableStateOf(AppLanguage.ENGLISH) }
     var darkMode by remember { mutableStateOf(false) }
     var defaultSpeed by remember { mutableStateOf(1f) }
+    val modelRepository = remember { DesktopModelRepository() }
+    var downloadedModels by remember { mutableStateOf(ModelCatalog.models.filter(modelRepository::isInstalled).map { it.id }.toSet()) }
+    var downloadingModel by remember { mutableStateOf<String?>(null) }
+    var downloadProgress by remember { mutableStateOf(0) }
+    var pendingLicenseModel by remember { mutableStateOf<TtsModelSpec?>(null) }
+    val scope = rememberCoroutineScope()
 
     MaterialTheme(colors = if (darkMode) darkColors() else lightColors()) {
         Column(
@@ -77,10 +89,55 @@ private fun DesktopApp() {
                         }
                     },
                 )
-                1 -> ModelsScreen(selectedModelId) { selectedModelId = it }
+                1 -> ModelsScreen(
+                    selectedModelId = selectedModelId,
+                    downloadedModels = downloadedModels,
+                    downloadingModel = downloadingModel,
+                    downloadProgress = downloadProgress,
+                    onModelSelected = { selectedModelId = it },
+                    onDownloadRequested = { pendingLicenseModel = it },
+                )
                 else -> SettingsScreen(interfaceLanguage, darkMode, defaultSpeed, { interfaceLanguage = it }, { darkMode = it }, { defaultSpeed = it })
             }
         }
+    }
+    pendingLicenseModel?.let { spec ->
+        val restricted = spec.requiresAcceptance
+        AlertDialog(
+            onDismissRequest = { pendingLicenseModel = null },
+            title = { Text(if (restricted) "Model usage terms" else "License information") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(spec.name, style = MaterialTheme.typography.subtitle1)
+                    Text(if (restricted) "Review these terms before downloading this model." else "Review this model's license and attribution before downloading it.")
+                    Text("License: ${spec.licenseSpdx}")
+                    if (spec.attribution.isNotBlank()) Text("Attribution: ${spec.attribution}")
+                    if (restricted) Text("By accepting, you confirm that you will respect the model's restrictions, attribution, and ShareAlike requirements where applicable.")
+                    if (spec.licenseUrl.isNotBlank()) Text(spec.licenseUrl, style = MaterialTheme.typography.caption)
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val selected = spec
+                    pendingLicenseModel = null
+                    if (downloadingModel == null) {
+                        downloadingModel = selected.id
+                        downloadProgress = 0
+                        scope.launch {
+                            runCatching {
+                                modelRepository.download(selected) { downloadProgress = it }
+                            }.onSuccess {
+                                downloadedModels = downloadedModels + selected.id
+                            }
+                            downloadingModel = null
+                        }
+                    }
+                }) { Text(if (restricted) "Accept and download" else "Continue download") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingLicenseModel = null }) { Text(if (restricted) "Reject" else "Cancel") }
+            },
+        )
     }
 }
 
@@ -107,7 +164,14 @@ private fun LibraryScreen(selectedFile: File?, text: String, onOpen: () -> Unit)
 }
 
 @Composable
-private fun ModelsScreen(selectedModelId: String, onModelSelected: (String) -> Unit) {
+private fun ModelsScreen(
+    selectedModelId: String,
+    downloadedModels: Set<String>,
+    downloadingModel: String?,
+    downloadProgress: Int,
+    onModelSelected: (String) -> Unit,
+    onDownloadRequested: (TtsModelSpec) -> Unit,
+) {
     var query by remember { mutableStateOf("") }
     val models = remember(query) {
         ModelCatalog.models.filter {
@@ -128,8 +192,18 @@ private fun ModelsScreen(selectedModelId: String, onModelSelected: (String) -> U
                             Text("${model.family} · ${model.language}")
                             Text("Downloaded on demand; model files are kept outside the application package.")
                         }
-                        Button(onClick = { onModelSelected(model.id) }) {
-                            Text(if (model.id == selectedModelId) "Selected" else "Select")
+                        Column {
+                            Button(onClick = { onModelSelected(model.id) }) {
+                                Text(if (model.id == selectedModelId) "Selected" else "Select")
+                            }
+                            when {
+                                model.id == downloadingModel -> {
+                                    Text("$downloadProgress%")
+                                    LinearProgressIndicator(progress = downloadProgress / 100f)
+                                }
+                                model.id in downloadedModels -> Text("Downloaded")
+                                else -> Button(onClick = { onDownloadRequested(model) }) { Text("Download") }
+                            }
                         }
                     }
                 }

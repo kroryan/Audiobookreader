@@ -22,6 +22,7 @@ dependencies {
     implementation(project(":shared"))
     implementation(compose.desktop.currentOs)
     implementation(compose.material)
+    implementation("org.apache.commons:commons-compress:1.26.1")
 }
 
 compose.desktop {
