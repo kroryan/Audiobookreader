@@ -26,7 +26,12 @@ class ModelRepository(context: Context) {
     }
 
     fun isInstalled(spec: TtsModelSpec): Boolean {
-        return modelFile(spec) != null
+        val rootDir = rootDir(spec)
+        val marker = File(rootDir, INSTALL_MARKER)
+        // The marker is written only after the archive has been fully extracted
+        // and the expected model file has been found. Keep the model-file
+        // fallback so installations made by older app versions remain usable.
+        return (marker.isFile && marker.readText() == spec.id) || modelFile(spec) != null
     }
 
     suspend fun download(spec: TtsModelSpec, progress: (Int) -> Unit) = withContext(Dispatchers.IO) {

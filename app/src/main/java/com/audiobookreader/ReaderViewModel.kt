@@ -129,6 +129,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                     settings.edit().putString(KEY_SELECTED_MODEL, spec.id).apply()
                     _state.value = _state.value.copy(
                         selectedModel = spec,
+                        installed = _state.value.installed + spec.id,
                         downloading = null,
                         cacheStatus = book?.let { audioCache.status(it, spec) },
                         message = "Modelo descargado y seleccionado: ${spec.name}",

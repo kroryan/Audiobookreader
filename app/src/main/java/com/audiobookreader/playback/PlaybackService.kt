@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -22,13 +23,23 @@ class PlaybackService : MediaSessionService() {
     private val progressTask = object : Runnable {
         override fun run() {
             saveProgress()
-            handler.postDelayed(this, 1000L)
+            handler.postDelayed(this, AUTO_SAVE_INTERVAL_MS)
+        }
+    }
+    private val playerListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (!isPlaying) saveProgress()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_ENDED) saveProgress()
         }
     }
 
     override fun onCreate() {
         super.onCreate()
         player = ExoPlayer.Builder(this).build()
+        player.addListener(playerListener)
         mediaSession = MediaSession.Builder(this, player).build()
         progressRepository = ProgressRepository(this)
         handler.post(progressTask)
@@ -55,12 +66,19 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         saveProgress()
         handler.removeCallbacks(progressTask)
+        player.removeListener(playerListener)
         mediaSession.release()
         player.release()
         super.onDestroy()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        saveProgress()
+        super.onTaskRemoved(rootIntent)
+    }
+
     companion object {
+        private const val AUTO_SAVE_INTERVAL_MS = 20_000L
         const val ACTION_PROGRESS = "com.audiobookreader.action.PROGRESS"
         private const val ACTION_PLAY = "com.audiobookreader.action.PLAY_BOOK"
         private const val EXTRA_PATHS = "paths"
