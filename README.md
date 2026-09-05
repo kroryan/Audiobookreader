@@ -30,7 +30,29 @@ The project is intended for Android Studio. The verified debug build is generate
 
 ## Desktop targets
 
-The desktop module uses the shared Kotlin core and Compose Desktop. It opens PDF, EPUB, HTML, and text documents, preserves paragraph-aware segmentation, provides a bookshelf library with persistent per-book position/bookmarks/cache controls, generates and plays selected fragments with the desktop sherpa-onnx JVM engine, exposes Models and Settings, downloads local model packages beside the executable, and loads the full Edge voice catalogue online. Linux packaging uses `:desktop:packageDeb` plus `scripts/package-appimage.sh`; Windows packaging uses `:desktop:packageMsi` and `:desktop:packageExe` on a Windows build machine. Native installers must be built on their target operating system.
+The desktop module uses the shared Kotlin core and Compose Desktop. It opens PDF, EPUB, HTML, and text documents, preserves paragraph-aware segmentation, provides a bookshelf library with persistent per-book position/bookmarks/cache controls, generates and plays selected fragments with the desktop sherpa-onnx JVM engine, exposes Models and Settings, downloads local model packages beside the executable, and loads the full Edge voice catalogue online. Linux packaging uses `:desktop:packageDeb` plus `scripts/package-appimage.sh`; Windows packaging uses `:desktop:packageMsi` and `:desktop:packageExe` on a Windows build machine. Native Gradle packaging tasks run on their target operating system; an alternative Windows packaging path using Wine is documented below.
+
+### Windows installers
+
+On Windows x64, install JDK 21 and WiX 3, then run:
+
+```powershell
+.\gradlew.bat :desktop:packageMsi :desktop:packageExe
+```
+
+The installers include Java, the Windows graphics/TTS libraries and the BookReader icon. They support per-user installation, a selectable destination and Start Menu/desktop shortcuts. Outputs are in `desktop/build/compose/binaries/main/msi/` and `desktop/build/compose/binaries/main/exe/`.
+
+Linux can also package the same JVM code with a Windows JDK under Wine:
+
+```bash
+./gradlew :desktop:stageWindows
+export BOOKREADER_WINDOWS_JDK=/absolute/path/to/windows-jdk-21
+export BOOKREADER_WIX_DIR=/absolute/path/to/wix-3.11.2
+export WINEPREFIX=/absolute/path/to/dedicated-wine-prefix
+xvfb-run -a bash scripts/package-windows-wine.sh
+```
+
+This path requires Wine 10 with Wine Mono 9.4 installed in that prefix, the Windows x64 JDK, WiX **3.11.2.4516**, and `x86_64-w64-mingw32-gcc`. The small WiX launcher adapter restores the version banner omitted by Wine Mono and skips ICE validation, which Wine cannot execute; native Windows builds keep ICE validation. The adapter is a build tool and is not shipped in the application. Windows installers are not Authenticode-signed; Android signing keys are not used for Windows.
 
 ## Release signing
 
