@@ -182,7 +182,8 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                 }
                 check(chunks.isNotEmpty()) { "El libro no contiene texto reproducible" }
                 val saved = progressRepository.load(book.id)
-                val start = saved.itemIndex.coerceIn(0, chunks.lastIndex)
+                var start = saved.itemIndex.coerceIn(0, chunks.lastIndex)
+                var startPositionMs = saved.positionMs.coerceAtLeast(0L)
                 val cache = File(appContext.cacheDir, "audio/${book.id}/${spec.id}").also { it.mkdirs() }
                 val initialFiles = mutableListOf<String>()
                 val initialEnd: Int
@@ -202,9 +203,21 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                     }
                     initialEnd = end
                     check(initialFiles.size > start) { "No se pudo preparar el punto guardado del libro" }
-                    val progress = ReadingProgress(book.id, start, saved.positionMs, chunks.size)
+                    val savedFileDuration = WavFile.durationMs(File(initialFiles[start]), engine.sampleRate())
+                    if (startPositionMs >= savedFileDuration - END_TOLERANCE_MS) {
+                        if (start < chunks.lastIndex) {
+                            start += 1
+                            startPositionMs = 0L
+                        } else {
+                            // A play action at the end of a completed book
+                            // starts it again instead of appearing frozen.
+                            start = 0
+                            startPositionMs = 0L
+                        }
+                    }
+                    val progress = ReadingProgress(book.id, start, startPositionMs, chunks.size)
                     progressRepository.save(progress)
-                    PlaybackService.play(appContext, initialFiles, book.id, start, saved.positionMs, chunks.size)
+                    PlaybackService.play(appContext, initialFiles, book.id, start, startPositionMs, chunks.size)
                     withContext(Dispatchers.Main) {
                         _state.value = _state.value.copy(
                             generating = false,
@@ -279,6 +292,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     companion object {
         private const val START_CHUNKS = 3
         private const val MIN_READY_DURATION_MS = 5 * 60 * 1000L
+        private const val END_TOLERANCE_MS = 500L
         private const val IntentFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
         private const val KEY_SELECTED_MODEL = "selected_model"
         private const val KEY_LIBRARY_URIS = "library_uris"

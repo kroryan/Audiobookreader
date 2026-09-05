@@ -2,7 +2,11 @@ package com.audiobookreader.playback
 
 import android.content.Context
 import android.content.Intent
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -11,6 +15,8 @@ import androidx.media3.session.MediaSessionService
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.content.pm.ServiceInfo
+import com.audiobookreader.R
 import com.audiobookreader.data.ProgressRepository
 import com.audiobookreader.data.ReadingProgress
 
@@ -49,6 +55,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        createPlaybackNotification()
         player = ExoPlayer.Builder(this).build()
         player.addListener(playerListener)
         mediaSession = MediaSession.Builder(this, player).build()
@@ -111,6 +118,8 @@ class PlaybackService : MediaSessionService() {
         private const val EXTRA_POSITION = "position"
         private const val EXTRA_BOOK_ID = "bookId"
         private const val EXTRA_ITEM_COUNT = "itemCount"
+        private const val CHANNEL_ID = "bookreader-playback"
+        private const val NOTIFICATION_ID = 4101
 
         fun play(context: Context, files: List<String>, bookId: String, startAt: Int = 0, positionMs: Long = 0L, itemCount: Int = files.size) {
             val intent = Intent(context, PlaybackService::class.java)
@@ -149,6 +158,27 @@ class PlaybackService : MediaSessionService() {
             .putExtra(EXTRA_START, index)
             .putExtra(EXTRA_POSITION, player.currentPosition.coerceAtLeast(0L))
             .putExtra(EXTRA_ITEM_COUNT, itemCount))
+    }
+
+    private fun createPlaybackNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Reproducción", NotificationManager.IMPORTANCE_LOW)
+            )
+        }
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_bookreader)
+            .setContentTitle("BookReader")
+            .setContentText("Preparando audiolibro…")
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+            .setOngoing(true)
+            .setShowWhen(false)
+            .build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
 }
