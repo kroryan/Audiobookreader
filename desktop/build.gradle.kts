@@ -29,7 +29,7 @@ compose.desktop {
         mainClass = "com.audiobookreader.desktop.MainKt"
         nativeDistributions {
             packageName = "BookReader"
-            packageVersion = "0.1.5"
+            packageVersion = "0.1.6"
             description = "Read books aloud with downloadable local voices"
             vendor = "BookReader"
             targetFormats(TargetFormat.Deb, TargetFormat.AppImage, TargetFormat.Msi, TargetFormat.Exe)

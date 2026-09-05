@@ -7,6 +7,7 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.rendering.PDFRenderer
 import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.audiobookreader.data.TextChunker
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
 import java.io.File
@@ -89,7 +90,7 @@ class BookRepository(private val context: Context) {
             return pdf.pages.mapIndexed { index, _ ->
                 stripper.startPage = index + 1
                 stripper.endPage = index + 1
-                Chapter("page-${index + 1}", "Página ${index + 1}", stripper.getText(pdf).trim())
+                    Chapter("page-${index + 1}", "Página ${index + 1}", TextChunker.normalizeDocumentText(stripper.getText(pdf)))
             }.filter { it.text.isNotBlank() }
         }
     }
@@ -109,12 +110,21 @@ class BookRepository(private val context: Context) {
                     val path = if (base.isBlank()) item.attr("href") else "$base/${item.attr("href")}".replace("//", "/")
                     val entry = zip.getEntry(path) ?: return@mapIndexedNotNull null
                     val html = Jsoup.parse(zip.getInputStream(entry), "UTF-8", "")
-                    val text = html.body()?.text()?.trim().orEmpty()
+                    val text = epubText(html)
                     if (text.isBlank()) null else Chapter("chapter-${index + 1}", "Capítulo ${index + 1}", text)
                 }
             }
         } finally {
             temp.delete()
         }
+    }
+
+    private fun epubText(document: org.jsoup.nodes.Document): String {
+        val body = document.body() ?: return ""
+        val blocks = body.select("h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,dt,dd,figcaption,caption,tr")
+            .map { it.text().trim() }
+            .filter(String::isNotBlank)
+        val raw = if (blocks.isNotEmpty()) blocks.joinToString("\n\n") else body.text()
+        return TextChunker.normalizeDocumentText(raw)
     }
 }

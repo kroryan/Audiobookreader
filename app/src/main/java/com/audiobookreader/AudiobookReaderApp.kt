@@ -47,6 +47,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,6 +66,7 @@ import com.audiobookreader.data.AppLanguage
 import com.audiobookreader.data.ModelFamily
 import com.audiobookreader.data.TextChunker
 import com.audiobookreader.data.TtsModelSpec
+import kotlinx.coroutines.launch
 
 @Composable
 fun AudiobookReaderApp(
@@ -193,7 +195,9 @@ private fun BookCover(book: Book, modifier: Modifier) {
 private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderViewModel, strings: UiStrings, onBack: () -> Unit) {
     val chunks = remember(book.id) { book.chapters.flatMap { chapter -> TextChunker.split(chapter.text).map { Triple(chapter.id, chapter.title, it) } } }
     val listState = rememberLazyListState()
+    val scrollScope = rememberCoroutineScope()
     val activeIndex = state.progress?.itemIndex ?: -1
+    val chunksStartIndex = 2 + if (state.bookmarks.isNotEmpty()) 1 else 0
     var modelMenuExpanded by remember { mutableStateOf(false) }
     var voiceSettingsExpanded by rememberSaveable(book.id) { mutableStateOf(false) }
     var speed by remember(book.id) { mutableFloatStateOf(state.bookTtsSettings.speed) }
@@ -271,6 +275,17 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
             }
             state.cacheStatus?.let { Text("${strings.audioReady}: ${it.percentage}% · ${it.sizeLabel}") }
             Text(strings.autoSave, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedButton(
+                onClick = {
+                    scrollScope.launch {
+                        listState.animateScrollToItem(chunksStartIndex + activeIndex)
+                    }
+                },
+                enabled = activeIndex in chunks.indices,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (state.appLanguage == AppLanguage.SPANISH) "Ir al punto actual" else "Go to current position")
+            }
             if (state.currentDurationMs > 0L && activeIndex in state.readyChunks) {
                 Text(strings.seekPosition, style = MaterialTheme.typography.titleSmall)
                 Slider(

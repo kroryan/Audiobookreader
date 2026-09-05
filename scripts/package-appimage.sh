@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="$ROOT_DIR/desktop/build/compose/binaries/main/app/BookReader"
 STAGING_DIR="${TMPDIR:-/tmp}/bookreader-appimage"
-OUTPUT_FILE="$ROOT_DIR/desktop/build/compose/binaries/main/appimage/BookReader-0.1.5-x86_64.AppImage"
+OUTPUT_FILE="$ROOT_DIR/desktop/build/compose/binaries/main/appimage/BookReader-0.1.6-x86_64.AppImage"
 APPIMAGETOOL_BIN="${APPIMAGETOOL:-appimagetool}"
 RUNTIME_ARGS=()
 if [[ -n "${APPIMAGETOOL_RUNTIME_FILE:-}" ]]; then
