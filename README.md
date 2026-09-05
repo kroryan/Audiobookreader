@@ -6,13 +6,14 @@ MVP de lector de PDF/EPUB/texto para Android con síntesis local y reproducción
 
 - Importación mediante el selector de documentos de Android.
 - Extracción de texto de PDF, EPUB y archivos de texto/HTML.
-- Catálogo descargable de modelos de Sherpa-ONNX.
+- Catálogo descargable multidioma de modelos de Sherpa-ONNX, filtrable por idioma.
 - Los modelos se descargan y se usan dentro de la aplicación; no se registran como motores TTS del sistema.
 - Al terminar una descarga, el modelo queda seleccionado automáticamente y se comprueba su contenido real aunque el archivo esté dentro de subcarpetas del paquete.
 - Adaptador `OfflineTts` para Piper/VITS, Coqui VITS, Mimic3 VITS, Kokoro y Supertonic.
 - Generación de audio PCM a WAV por fragmentos y playlist de Media3.
 - `MediaSessionService` para notificación, controles del sistema, pantalla bloqueada y salida de la aplicación.
 - Porcentaje de lectura, posición exacta por fragmento, marcadores y persistencia local del progreso.
+- Resaltado visual del fragmento completo que se está reproduciendo, con desplazamiento automático del lector.
 - Porcentaje y tamaño del audio preparado por libro, limpieza individual o global de caché y límite de 512 MB para evitar llenar el almacenamiento.
 - Tema claro/oscuro siguiendo automáticamente el tema del sistema, con contraste específico para lectura.
 - Icono original en `assets/bookreader-icon.png`, usado también por el APK.
@@ -27,21 +28,18 @@ La firma se lee desde `keystore.properties`, que está excluido de Git. Las huel
 
 La lista se ha contrastado con `scripts/apk/generate-tts-apk-script.py` del checkout de Sherpa-ONNX:
 
-- Piper/VITS: Miro, Davefx y Sharvard para `es_ES`.
-- Coqui VITS: `vits-coqui-es-css10`.
-- Mimic3 VITS: `vits-mimic3-es_ES-m-ailabs_low`.
-- Kokoro: v0.19 inglés y v1.1 inglés+chino, incluyendo variante INT8.
+- Piper/VITS: el catálogo disponible de Sherpa-ONNX para decenas de idiomas, incluidos Miro, Davefx y Sharvard para `es_ES`.
+- Coqui VITS y Mimic3 VITS: los paquetes publicados por Sherpa-ONNX que el motor OfflineTts puede ejecutar internamente.
+- Kokoro: v0.19 inglés y v1.0/v1.1 inglés+chino, incluyendo variante INT8.
 - Supertonic 3 INT8: español y otros idiomas en un paquete multilingüe.
 
 Kokoro merece una integración separada: el catálogo de voces original de Kokoro-82M sí incluye español (`ef_dora`, `em_alex`, `em_santa`), pero los paquetes oficiales que Sherpa-ONNX documenta actualmente como `kokoro-multi-lang-v1_0/v1_1` se publican y configuran para inglés+chino. Para usar esas voces españolas en el dispositivo habrá que validar una conversión compatible con el frontend/phonemizer de Sherpa; no se debe presentar como soporte terminado hasta generar audio correcto en un teléfono ARM.
 
-## Siguiente trabajo
+## Pendiente
 
-1. Descargar un modelo español pequeño y probar generación, memoria y factor de tiempo real en varios teléfonos.
-2. Generar progresivamente la cola para que un libro largo no tenga que esperar a que termine completo.
-3. Añadir resaltado palabra/frase sincronizado, controles de velocidad, temporizador y selección de voz.
-4. Incorporar el catálogo completo upstream mediante un manifiesto versionado y mostrar licencia/tamaño de cada modelo.
-5. Validar Kokoro español y decidir si se integra como paquete oficial, modelo convertido o backend independiente.
+1. Validar Kokoro español y decidir si se integra como paquete oficial, modelo convertido o backend independiente.
+2. Añadir controles de velocidad, temporizador y selección de voz.
+3. Mostrar licencia y tamaño de cada modelo mediante un manifiesto versionado.
 
 ## Fuentes técnicas
 

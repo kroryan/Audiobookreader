@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.audiobookreader.data.Book
+import com.audiobookreader.data.AppLanguage
 import com.audiobookreader.data.BookRepository
 import com.audiobookreader.data.ModelCatalog
 import com.audiobookreader.data.ModelRepository
@@ -40,6 +41,7 @@ data class ReaderState(
     val downloadProgress: Int = 0,
     val generating: Boolean = false,
     val message: String? = null,
+    val appLanguage: AppLanguage = AppLanguage.ENGLISH,
 )
 
 class ReaderViewModel(private val appContext: Context) : ViewModel() {
@@ -48,10 +50,11 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     private val progressRepository = ProgressRepository(appContext)
     private val audioCache = AudioCacheRepository(appContext)
     private val settings = appContext.getSharedPreferences("bookreader-settings", Context.MODE_PRIVATE)
+    private val initialLanguage = AppLanguage.fromCode(settings.getString(KEY_APP_LANGUAGE, null))
     private val initialModel = ModelCatalog.models.firstOrNull {
         it.id == settings.getString(KEY_SELECTED_MODEL, null)
     } ?: ModelCatalog.models.first()
-    private val _state = MutableStateFlow(ReaderState(selectedModel = initialModel))
+    private val _state = MutableStateFlow(ReaderState(selectedModel = initialModel, appLanguage = initialLanguage))
     val state: StateFlow<ReaderState> = _state.asStateFlow()
     private var generationJob: Job? = null
 
@@ -103,6 +106,11 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
             cacheStatus = book?.let { audioCache.status(it, spec) },
             message = null,
         )
+    }
+
+    fun setAppLanguage(language: AppLanguage) {
+        settings.edit().putString(KEY_APP_LANGUAGE, language.code).apply()
+        _state.value = _state.value.copy(appLanguage = language)
     }
 
     fun clearSelectedBookCache() {
@@ -160,7 +168,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         }
     }
 
-    fun playSelected(context: Context) {
+    fun playSelected() {
         val current = _state.value
         val book = current.selectedBook ?: return
         val spec = current.selectedModel
@@ -295,6 +303,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         private const val END_TOLERANCE_MS = 500L
         private const val IntentFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
         private const val KEY_SELECTED_MODEL = "selected_model"
+        private const val KEY_APP_LANGUAGE = "app_language"
         private const val KEY_LIBRARY_URIS = "library_uris"
         fun factory(context: Context) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
