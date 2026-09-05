@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.Button
@@ -36,18 +37,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberDialogState
 import com.audiobookreader.data.ModelCatalog
 import com.audiobookreader.data.AppLanguage
 import com.audiobookreader.data.TextChunker
 import com.audiobookreader.data.TtsModelSpec
 import kotlinx.coroutines.launch
 import java.io.File
-import javax.swing.JFileChooser
-import javax.swing.SwingUtilities
-import javax.swing.UIManager
-import javax.swing.filechooser.FileNameExtensionFilter
 
 fun main() = application {
     Window(onCloseRequest = ::exitApplication, title = "BookReader") {
@@ -70,6 +69,7 @@ private fun DesktopApp() {
     var downloadProgress by remember { mutableStateOf(0) }
     var pendingLicenseModel by remember { mutableStateOf<TtsModelSpec?>(null) }
     var availableModels by remember { mutableStateOf(ModelCatalog.models + DesktopKokoroVoiceCatalog.voices) }
+    var filePickerOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -92,14 +92,7 @@ private fun DesktopApp() {
                 0 -> LibraryScreen(
                     selectedFile = selectedFile,
                     text = text,
-                    onOpen = {
-                        val file = chooseBookFile()
-                        if (file != null) {
-                            selectedFile = file
-                            text = runCatching { DesktopBookReader.read(file) }
-                                .getOrElse { "Could not open ${file.name}: ${it.message}" }
-                        }
-                    },
+                    onOpen = { filePickerOpen = true },
                 )
                 1 -> ModelsScreen(
                     selectedModelId = selectedModelId,
@@ -112,6 +105,17 @@ private fun DesktopApp() {
                 )
                 else -> SettingsScreen(interfaceLanguage, darkMode, defaultSpeed, { interfaceLanguage = it }, { darkMode = it }, { defaultSpeed = it })
             }
+        }
+        if (filePickerOpen) {
+            BookFilePicker(
+                onCancel = { filePickerOpen = false },
+                onFileSelected = { file ->
+                    filePickerOpen = false
+                    selectedFile = file
+                    text = runCatching { DesktopBookReader.read(file) }
+                        .getOrElse { "Could not open ${file.name}: ${it.message}" }
+                },
+            )
         }
     }
     pendingLicenseModel?.let { spec ->
@@ -154,29 +158,76 @@ private fun DesktopApp() {
     }
 }
 
-/**
- * Compose Desktop and GTK can leave Swing's native file chooser with unreadable
- * foreground colors. Metal is self-contained and keeps the chooser readable on
- * Linux, including AppImage launches. JFileChooser must also run on the Swing EDT.
- */
-private fun chooseBookFile(): File? {
-    var selected: File? = null
-    val openChooser = Runnable {
-        runCatching { UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName()) }
-        val chooser = JFileChooser().apply {
-            dialogTitle = "Open book"
-            fileFilter = FileNameExtensionFilter(
-                "Books and documents (PDF, EPUB, TXT, HTML)",
-                "pdf", "epub", "txt", "html", "htm",
-            )
-        }
-        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-            selected = chooser.selectedFile
+@Composable
+private fun BookFilePicker(onCancel: () -> Unit, onFileSelected: (File) -> Unit) {
+    var directory by remember { mutableStateOf(defaultBookDirectory()) }
+    var selected by remember { mutableStateOf<File?>(null) }
+    val entries = remember(directory) {
+        directory.listFiles()
+            ?.filter { it.isDirectory || it.extension.lowercase() in SUPPORTED_BOOK_EXTENSIONS }
+            ?.sortedWith(compareBy<File> { !it.isDirectory }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+            .orEmpty()
+    }
+    DialogWindow(
+        onCloseRequest = onCancel,
+        title = "Open book",
+        state = rememberDialogState(width = 860.dp, height = 620.dp),
+    ) {
+        MaterialTheme {
+            Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { directory.parentFile?.let { directory = it } },
+                        enabled = directory.parentFile != null,
+                    ) { Text("Up") }
+                    Text(directory.absolutePath, modifier = Modifier.weight(1f), color = MaterialTheme.colors.onSurface)
+                }
+                Text("Choose a PDF, EPUB, TXT, HTML or HTM file", color = MaterialTheme.colors.onSurface)
+                Card(Modifier.fillMaxWidth().weight(1f)) {
+                    if (entries.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                            Text(
+                                if (directory.canRead()) "No supported books in this folder" else "This folder cannot be read",
+                                color = MaterialTheme.colors.onSurface,
+                            )
+                        }
+                    } else {
+                        LazyColumn(Modifier.fillMaxSize().padding(6.dp)) {
+                            items(entries, key = { it.absolutePath }) { entry ->
+                                val isSelected = selected?.absolutePath == entry.absolutePath
+                                Row(
+                                    Modifier.fillMaxWidth()
+                                        .clickable {
+                                            if (entry.isDirectory) directory = entry else selected = entry
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 11.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Text(if (entry.isDirectory) "📁" else "📄", color = MaterialTheme.colors.onSurface)
+                                    Text(
+                                        entry.name,
+                                        color = if (isSelected) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Text(selected?.name ?: "No file selected", modifier = Modifier.weight(1f), color = MaterialTheme.colors.onSurface)
+                    TextButton(onClick = onCancel) { Text("Cancel") }
+                    Button(onClick = { selected?.let(onFileSelected) }, enabled = selected != null) { Text("Open") }
+                }
+            }
         }
     }
-    if (SwingUtilities.isEventDispatchThread()) openChooser.run()
-    else SwingUtilities.invokeAndWait(openChooser)
-    return selected
+}
+
+private val SUPPORTED_BOOK_EXTENSIONS = setOf("pdf", "epub", "txt", "html", "htm")
+
+private fun defaultBookDirectory(): File {
+    val home = System.getProperty("user.home")?.let(::File)
+    return home?.takeIf { it.isDirectory } ?: File(System.getProperty("user.dir", "."))
 }
 
 @Composable
