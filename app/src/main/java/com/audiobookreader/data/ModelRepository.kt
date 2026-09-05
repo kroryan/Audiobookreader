@@ -112,20 +112,28 @@ class ModelRepository(context: Context) {
         val connection = URL(spec.archiveName).openConnection() as HttpURLConnection
         connection.connectTimeout = 20_000
         connection.readTimeout = 60_000
+        connection.instanceFollowRedirects = true
+        connection.setRequestProperty("User-Agent", "BookReader/0.1")
+        connection.setRequestProperty("Accept", "application/octet-stream")
         connection.connect()
-        check(connection.responseCode in 200..299) { "Descarga fallida: HTTP ${connection.responseCode}" }
-        val total = connection.contentLengthLong
-        connection.inputStream.use { input -> archive.outputStream().use { output ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            var copied = 0L
-            var read: Int
-            while (input.read(buffer).also { read = it } >= 0) {
-                if (read == 0) continue
-                output.write(buffer, 0, read)
-                copied += read
-                if (total > 0) progress((copied * 100 / total).toInt())
-            }
-        } }
+        try {
+            check(connection.responseCode in 200..299) { "Descarga fallida: HTTP ${connection.responseCode}" }
+            val total = connection.contentLengthLong
+            connection.inputStream.use { input -> archive.outputStream().use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var copied = 0L
+                var read: Int
+                while (input.read(buffer).also { read = it } >= 0) {
+                    if (read == 0) continue
+                    output.write(buffer, 0, read)
+                    copied += read
+                    if (total > 0) progress((copied * 100 / total).toInt().coerceIn(0, 100))
+                }
+            } }
+            check(archive.length() > 0L) { "La descarga terminó sin datos" }
+        } finally {
+            connection.disconnect()
+        }
         target.deleteRecursively()
         installing.deleteRecursively()
         installing.mkdirs()

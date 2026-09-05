@@ -251,14 +251,17 @@ vits-piper-zh_CN-chaowen-medium
     private fun vitsModel(dir: String, family: ModelFamily): TtsModelSpec {
         val prefix = if (family == ModelFamily.COQUI) "vits-coqui-" else "vits-mimic3-"
         val suffix = dir.removePrefix(prefix)
+        // Coqui archives always contain model.onnx. Mimic3 archives use the
+        // model directory suffix as the ONNX filename.
+        val modelName = if (family == ModelFamily.COQUI) "model.onnx" else "$suffix.onnx"
         return TtsModelSpec(
             id = dir.replace('_', '-'),
             name = "${if (family == ModelFamily.COQUI) "Coqui VITS" else "Mimic3"} · $suffix",
             family = family,
             language = languageOf(suffix),
             archiveName = "$base$dir.tar.bz2",
-            modelName = "$suffix.onnx",
-            dataDir = "espeak-ng-data",
+            modelName = modelName,
+            dataDir = if (family == ModelFamily.COQUI) "" else "espeak-ng-data",
         )
     }
 
