@@ -3,8 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="$ROOT_DIR/desktop/build/compose/binaries/main/app/BookReader"
-STAGING_DIR="${TMPDIR:-/tmp}/bookreader-appimage"
-OUTPUT_FILE="${APPIMAGE_OUTPUT_FILE:-$ROOT_DIR/desktop/build/compose/binaries/main/appimage/BookReader-0.1.6-x86_64.AppImage}"
+VERSION="$(sed -n 's/.*packageVersion = "\([^"]*\)".*/\1/p' "$ROOT_DIR/desktop/build.gradle.kts")"
+test -n "$VERSION" || { echo "Missing desktop packageVersion" >&2; exit 1; }
+OUTPUT_FILE="${APPIMAGE_OUTPUT_FILE:-$ROOT_DIR/desktop/build/compose/binaries/main/appimage/BookReader-$VERSION-x86_64.AppImage}"
 APPIMAGETOOL_BIN="${APPIMAGETOOL:-appimagetool}"
 RUNTIME_ARGS=()
 if [[ -n "${APPIMAGETOOL_RUNTIME_FILE:-}" ]]; then
@@ -20,8 +21,9 @@ command -v "$APPIMAGETOOL_BIN" >/dev/null 2>&1 || {
   exit 1
 }
 
-rm -rf "$STAGING_DIR"
-mkdir -p "$STAGING_DIR" "$(dirname "$OUTPUT_FILE")"
+STAGING_DIR="$(mktemp -d /tmp/bookreader-appimage.XXXXXX)"
+trap 'rm -rf -- "$STAGING_DIR"' EXIT
+mkdir -p "$(dirname "$OUTPUT_FILE")"
 cp -a "$APP_DIR" "$STAGING_DIR/BookReader"
 cp "$ROOT_DIR/desktop/appimage/AppRun" "$STAGING_DIR/AppRun"
 cp "$ROOT_DIR/desktop/appimage/bookreader.desktop" "$STAGING_DIR/bookreader.desktop"
