@@ -127,6 +127,19 @@ class PlaybackService : MediaSessionService() {
             }
             ACTION_SEEK_BACK -> player.seekBack()
             ACTION_SEEK_FORWARD -> player.seekForward()
+            ACTION_SEEK_TO -> {
+                val index = intent.getIntExtra(EXTRA_SEEK_INDEX, -1)
+                val position = intent.getLongExtra(EXTRA_SEEK_POSITION, 0L).coerceAtLeast(0L)
+                if (index in 0 until player.mediaItemCount) {
+                    player.seekTo(index, position)
+                    player.play()
+                    publishProgress(index, position)
+                } else if (index == player.currentMediaItemIndex && index >= 0) {
+                    player.seekTo(position)
+                    player.play()
+                    publishProgress(index, position)
+                }
+            }
             ACTION_TOGGLE -> if (player.isPlaying) player.pause() else player.play()
             ACTION_RESET -> {
                 val resetBookId = intent.getStringExtra(EXTRA_BOOK_ID)
@@ -178,12 +191,15 @@ class PlaybackService : MediaSessionService() {
         private const val ACTION_RESET = "com.audiobookreader.action.RESET_BOOK"
         private const val ACTION_SEEK_BACK = "com.audiobookreader.action.SEEK_BACK"
         private const val ACTION_SEEK_FORWARD = "com.audiobookreader.action.SEEK_FORWARD"
+        private const val ACTION_SEEK_TO = "com.audiobookreader.action.SEEK_TO"
         private const val ACTION_TOGGLE = "com.audiobookreader.action.TOGGLE_PLAYBACK"
         private const val EXTRA_PATHS = "paths"
         private const val EXTRA_START = "start"
         private const val EXTRA_POSITION = "position"
         private const val EXTRA_BOOK_ID = "bookId"
         private const val EXTRA_ITEM_COUNT = "itemCount"
+        private const val EXTRA_SEEK_INDEX = "seekIndex"
+        private const val EXTRA_SEEK_POSITION = "seekPosition"
         private const val CHANNEL_ID = "bookreader-playback"
         private const val NOTIFICATION_ID = 4101
         private const val SEEK_BACK_MS = 15_000L
@@ -218,6 +234,14 @@ class PlaybackService : MediaSessionService() {
                 .setAction(ACTION_RESET)
                 .putExtra(EXTRA_BOOK_ID, bookId)
                 .putExtra(EXTRA_ITEM_COUNT, itemCount)
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun seekTo(context: Context, index: Int, positionMs: Long = 0L) {
+            val intent = Intent(context, PlaybackService::class.java)
+                .setAction(ACTION_SEEK_TO)
+                .putExtra(EXTRA_SEEK_INDEX, index)
+                .putExtra(EXTRA_SEEK_POSITION, positionMs)
             ContextCompat.startForegroundService(context, intent)
         }
     }

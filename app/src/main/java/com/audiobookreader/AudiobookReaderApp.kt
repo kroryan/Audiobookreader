@@ -34,6 +34,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -190,8 +192,15 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
     val chunks = remember(book.id) { book.chapters.flatMap { chapter -> TextChunker.split(chapter.text).map { Triple(chapter.id, chapter.title, it) } } }
     val listState = rememberLazyListState()
     val activeIndex = state.progress?.itemIndex ?: -1
-    LaunchedEffect(activeIndex, chunks.size) {
-        if (activeIndex >= 0 && chunks.isNotEmpty()) listState.animateScrollToItem((activeIndex + 2).coerceAtMost(chunks.lastIndex + 2))
+    var modelMenuExpanded by remember { mutableStateOf(false) }
+    var speed by remember(book.id) { mutableFloatStateOf(state.bookTtsSettings.speed) }
+    var speakerText by remember(book.id) { mutableStateOf(state.bookTtsSettings.speakerId.toString()) }
+    var seekFraction by remember { mutableFloatStateOf(0f) }
+    var seeking by remember { mutableStateOf(false) }
+    LaunchedEffect(state.progress?.positionMs, state.currentDurationMs, seeking) {
+        if (!seeking && state.currentDurationMs > 0L) {
+            seekFraction = ((state.progress?.positionMs ?: 0L).toFloat() / state.currentDurationMs.toFloat()).coerceIn(0f, 1f)
+        }
     }
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -204,6 +213,35 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
                     Text("${strings.voice}: ${state.selectedModel.name}")
                 }
             }
+            Spacer(Modifier.height(10.dp))
+            Text(strings.voiceSettings, style = MaterialTheme.typography.titleMedium)
+            Box {
+                Button(onClick = { modelMenuExpanded = true }) { Text(state.selectedModel.name) }
+                DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
+                    state.availableModels.filter { it.id == state.selectedModel.id || state.installed.contains(it.id) }
+                        .forEach { model ->
+                            DropdownMenuItem(
+                                text = { Text(model.name) },
+                                onClick = { viewModel.selectModel(model); modelMenuExpanded = false },
+                            )
+                        }
+                }
+            }
+            Text("${strings.speed}: ${"%.2f".format(speed)}x")
+            Slider(
+                value = speed,
+                onValueChange = { speed = it },
+                onValueChangeFinished = { viewModel.setBookSpeed(speed) },
+                valueRange = 0.5f..2.5f,
+            )
+            OutlinedTextField(
+                value = speakerText,
+                onValueChange = { speakerText = it.filter(Char::isDigit).take(2) },
+                label = { Text(strings.speaker) },
+                supportingText = { Text("0 = voz principal") },
+                singleLine = true,
+            )
+            TextButton(onClick = { speakerText.toIntOrNull()?.let(viewModel::setBookSpeakerId) }) { Text(strings.applyVoiceSettings) }
         }
         item {
             state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
@@ -213,11 +251,36 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
             }
             state.cacheStatus?.let { Text("${strings.audioReady}: ${it.percentage}% · ${it.sizeLabel}") }
             Text(strings.autoSave, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (state.currentDurationMs > 0L && activeIndex in state.readyChunks) {
+                Text(strings.seekPosition, style = MaterialTheme.typography.titleSmall)
+                Slider(
+                    value = seekFraction,
+                    onValueChange = { seeking = true; seekFraction = it },
+                    onValueChangeFinished = {
+                        seeking = false
+                        viewModel.seekCurrentPosition((seekFraction * state.currentDurationMs).toLong())
+                    },
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(formatDuration((seekFraction * state.currentDurationMs).toLong()), style = MaterialTheme.typography.bodySmall)
+                    Text(formatDuration(state.currentDurationMs), style = MaterialTheme.typography.bodySmall)
+                }
+            }
             if (state.generating) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
                 Text(strings.preparing)
             } else {
                 Button(onClick = { viewModel.playSelected() }) { Text("▶ ${strings.play}") }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(
+                    onClick = { viewModel.jumpToChunk(activeIndex - 1) },
+                    enabled = activeIndex > 0 && state.readyChunks.contains(activeIndex - 1),
+                ) { Text("‹ ${strings.previousFragment}") }
+                TextButton(
+                    onClick = { viewModel.jumpToChunk(activeIndex + 1) },
+                    enabled = activeIndex >= 0 && activeIndex < chunks.lastIndex && state.readyChunks.contains(activeIndex + 1),
+                ) { Text("${strings.nextFragment} ›") }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = viewModel::addBookmark) { Text(strings.addBookmark) }
@@ -237,12 +300,16 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
         }
         itemsIndexed(chunks) { index, chunk ->
             val active = activeIndex == index
+            val ready = state.readyChunks.contains(index)
             Column(
-                Modifier.fillMaxWidth().then(if (active) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium).padding(16.dp) else Modifier.padding(vertical = 8.dp))
+                Modifier.fillMaxWidth()
+                    .clickable(enabled = ready) { viewModel.jumpToChunk(index) }
+                    .then(if (active) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium).padding(16.dp) else Modifier.padding(vertical = 8.dp))
             ) {
                 Text(if (active) "${chunk.second} · ${strings.readingNow}" else chunk.second, style = MaterialTheme.typography.titleMedium, color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
                 Spacer(Modifier.height(7.dp))
                 Text(chunk.third, style = MaterialTheme.typography.bodyLarge.copy(fontSize = if (active) 22.sp else 18.sp, lineHeight = if (active) 34.sp else 29.sp, lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None)), color = MaterialTheme.colorScheme.onSurface)
+                if (ready && !active) Text(strings.tapToPlayFragment, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 if (!active && index < chunks.lastIndex) Divider(Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
             }
         }
@@ -349,6 +416,8 @@ private data class UiStrings(
     val autoSave: String, val preparing: String, val play: String, val addBookmark: String, val clearAudio: String,
     val clearCache: String, val bookmarks: String, val readingNow: String, val experimental: String, val selected: String,
     val use: String, val downloaded: String, val download: String, val resetProgress: String, val stop: String,
+    val previousFragment: String, val nextFragment: String, val tapToPlayFragment: String, val seekPosition: String,
+    val voiceSettings: String, val speed: String, val speaker: String, val applyVoiceSettings: String,
     val allLanguages: String, val interfaceLanguage: String, val imported: String,
     val importLocalModel: String, val importModelHelp: String, val languageCode: String, val importModel: String,
     val systemTheme: String, val systemThemeDescription: String, val backgroundPlayback: String, val backgroundPlaybackDescription: String,
@@ -357,8 +426,17 @@ private data class UiStrings(
     fun languageLabel(code: String) = if (code == "all") allLanguages else LANGUAGE_NAMES[code] ?: code.uppercase()
     companion object {
         private val LANGUAGE_NAMES = mapOf("af" to "Afrikaans", "ar" to "Arabic", "ca" to "Catalan", "cs" to "Czech", "cy" to "Welsh", "da" to "Danish", "de" to "German", "el" to "Greek", "en" to "English", "es" to "Spanish", "eu" to "Basque", "fa" to "Persian", "fi" to "Finnish", "fr" to "French", "hi" to "Hindi", "hr" to "Croatian", "hu" to "Hungarian", "id" to "Indonesian", "is" to "Icelandic", "it" to "Italian", "ka" to "Georgian", "kk" to "Kazakh", "ku" to "Kurdish", "lb" to "Luxembourgish", "lv" to "Latvian", "ne" to "Nepali", "nl" to "Dutch", "no" to "Norwegian", "pl" to "Polish", "pt" to "Portuguese", "ro" to "Romanian", "ru" to "Russian", "sk" to "Slovak", "sl" to "Slovenian", "sq" to "Albanian", "sr" to "Serbian", "sv" to "Swedish", "sw" to "Swahili", "tr" to "Turkish", "uk" to "Ukrainian", "ur" to "Urdu", "vi" to "Vietnamese", "zh" to "Chinese")
-        fun forLanguage(language: AppLanguage) = if (language == AppLanguage.SPANISH) UiStrings("Biblioteca", "Tus libros y su progreso de escucha", "Añadir PDF, EPUB o texto", "Todavía no has añadido ningún libro.", "Abrir libro", "Modelos", "Se descargan bajo demanda y se ejecutan dentro de BookReader.", "Ajustes", "Preferencias de la aplicación", "capítulos/páginas", "Voz", "Progreso guardado", "fragmento", "Audio preparado", "La posición se guarda automáticamente cada 20 segundos y al pausar.", "Preparando los primeros minutos…", "Reproducir / continuar", "Guardar marcador", "Limpiar audio", "Limpiar caché", "Marcadores", "leyendo ahora", "Experimental: requiere validación adicional", "Seleccionado", "Usar", "Descargado", "Descargar", "Reiniciar progreso", "Detener", "Todos los idiomas", "Idioma de la interfaz", "Modelo importado", "Importar modelo ONNX", "Selecciona el .onnx y tokens.txt; puedes añadir también el .onnx.json y archivos auxiliares. Se guardan dentro de BookReader.", "Código de idioma", "Importar archivos", "Tema del sistema", "El modo oscuro sigue automáticamente la configuración del sistema.", "Reproducción en segundo plano", "Desactiva la optimización de batería para que el TTS y el reproductor sigan funcionando con la pantalla apagada.", "Abrir ajustes de batería", "Guardado de progreso", "El progreso y los marcadores se guardan automáticamente mientras escuchas.") else UiStrings("Library", "Your books and listening progress", "Add PDF, EPUB or text", "You have not added any books yet.", "Open book", "Models", "Downloaded on demand and executed inside BookReader.", "Settings", "Application preferences", "chapters/pages", "Voice", "Saved progress", "fragment", "Audio prepared", "Position is saved automatically every 20 seconds and when paused.", "Preparing the first minutes…", "Play / continue", "Save bookmark", "Clear audio", "Clear cache", "Bookmarks", "reading now", "Experimental: requires additional validation", "Selected", "Use", "Downloaded", "Download", "Reset progress", "Stop", "All languages", "Interface language", "Imported model", "Import ONNX model", "Select the .onnx and tokens.txt; you may also add the .onnx.json and auxiliary files. They are stored inside BookReader.", "Language code", "Import files", "System theme", "Dark mode follows the system setting automatically.", "Background playback", "Disable battery optimization so TTS and playback can continue with the screen off.", "Open battery settings", "Progress saving", "Progress and bookmarks are saved automatically while you listen.")
+        fun forLanguage(language: AppLanguage) = if (language == AppLanguage.SPANISH) UiStrings("Biblioteca", "Tus libros y su progreso de escucha", "Añadir PDF, EPUB o texto", "Todavía no has añadido ningún libro.", "Abrir libro", "Modelos", "Se descargan bajo demanda y se ejecutan dentro de BookReader.", "Ajustes", "Preferencias de la aplicación", "capítulos/páginas", "Voz", "Progreso guardado", "fragmento", "Audio preparado", "La posición se guarda automáticamente cada 20 segundos y al pausar.", "Preparando los primeros minutos…", "Reproducir / continuar", "Guardar marcador", "Limpiar audio", "Limpiar caché", "Marcadores", "leyendo ahora", "Experimental: requiere validación adicional", "Seleccionado", "Usar", "Descargado", "Descargar", "Reiniciar progreso", "Detener", "Fragmento anterior", "Siguiente fragmento", "Toca un fragmento preparado para reproducirlo", "Posición del fragmento", "Configuración de voz", "Velocidad", "ID de voz", "Aplicar configuración", "Todos los idiomas", "Idioma de la interfaz", "Modelo importado", "Importar modelo ONNX", "Selecciona el .onnx y tokens.txt; puedes añadir también el .onnx.json y archivos auxiliares. Se guardan dentro de BookReader.", "Código de idioma", "Importar archivos", "Tema del sistema", "El modo oscuro sigue automáticamente la configuración del sistema.", "Reproducción en segundo plano", "Desactiva la optimización de batería para que el TTS y el reproductor sigan funcionando con la pantalla apagada.", "Abrir ajustes de batería", "Guardado de progreso", "El progreso y los marcadores se guardan automáticamente mientras escuchas.") else UiStrings("Library", "Your books and listening progress", "Add PDF, EPUB or text", "You have not added any books yet.", "Open book", "Models", "Downloaded on demand and executed inside BookReader.", "Settings", "Application preferences", "chapters/pages", "Voice", "Saved progress", "fragment", "Audio prepared", "Position is saved automatically every 20 seconds and when paused.", "Preparing the first minutes…", "Play / continue", "Save bookmark", "Clear audio", "Clear cache", "Bookmarks", "reading now", "Experimental: requires additional validation", "Selected", "Use", "Downloaded", "Download", "Reset progress", "Stop", "Previous fragment", "Next fragment", "Tap a prepared fragment to play it", "Fragment position", "Voice settings", "Speed", "Voice ID", "Apply settings", "All languages", "Interface language", "Imported model", "Import ONNX model", "Select the .onnx and tokens.txt; you may also add the .onnx.json and auxiliary files. They are stored inside BookReader.", "Language code", "Import files", "System theme", "Dark mode follows the system setting automatically.", "Background playback", "Disable battery optimization so TTS and playback can continue with the screen off.", "Open battery settings", "Progress saving", "Progress and bookmarks are saved automatically while you listen.")
     }
+}
+
+private fun formatDuration(milliseconds: Long): String {
+    val totalSeconds = (milliseconds / 1000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3600L
+    val minutes = (totalSeconds % 3600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) "%d:%02d:%02d".format(hours, minutes, seconds)
+    else "%d:%02d".format(minutes, seconds)
 }
 
 private fun ModelFamily.label() = when (this) {

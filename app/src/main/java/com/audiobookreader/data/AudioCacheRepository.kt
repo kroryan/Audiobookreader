@@ -27,6 +27,32 @@ class AudioCacheRepository(context: Context) {
         return AudioCacheStatus(book.id, model.id, generated, expected, bytes)
     }
 
+    fun readyChunks(bookId: String, modelId: String): Set<Int> =
+        File(root, "$bookId/$modelId").listFiles().orEmpty()
+            .filter { it.extension == "wav" && it.length() > 44L }
+            .mapNotNull { it.nameWithoutExtension.substringAfterLast('-').toIntOrNull() }
+            .toSet()
+
+    fun filesThrough(bookId: String, modelId: String, lastIndex: Int): List<String>? {
+        if (lastIndex < 0) return emptyList()
+        val files = File(root, "$bookId/$modelId").listFiles().orEmpty()
+        return (0..lastIndex).map { index ->
+            files.firstOrNull { it.name.endsWith("-$index.wav") && it.length() > 44L }
+                ?: return null
+        }.map(File::getAbsolutePath)
+    }
+
+    fun durationMs(bookId: String, modelId: String, index: Int): Long {
+        val file = File(root, "$bookId/$modelId").listFiles().orEmpty()
+            .firstOrNull { it.name.endsWith("-$index.wav") && it.length() > 44L }
+            ?: return 0L
+        return com.audiobookreader.playback.WavFile.durationMs(file)
+    }
+
+    fun clearModel(bookId: String, modelId: String) {
+        File(root, "$bookId/$modelId").deleteRecursively()
+    }
+
     fun clearBook(bookId: String) { File(root, bookId).deleteRecursively() }
 
     fun clearFrom(bookId: String, modelId: String, firstChunk: Int) {
