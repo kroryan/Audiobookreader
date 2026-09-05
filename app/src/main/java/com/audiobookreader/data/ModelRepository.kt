@@ -11,19 +11,27 @@ import java.net.URL
 class ModelRepository(context: Context) {
     private val root = File(context.filesDir, "tts-models").also { it.mkdirs() }
 
+    private fun rootDir(spec: TtsModelSpec) = File(root, spec.id)
+
+    private fun modelFile(spec: TtsModelSpec): File? {
+        val rootDir = rootDir(spec)
+        if (!rootDir.isDirectory) return null
+        if (spec.modelName.isBlank()) return rootDir.walkTopDown().firstOrNull { it.isFile && it.name == "tts.json" }
+        return rootDir.walkTopDown().firstOrNull { it.isFile && it.name == spec.modelName }
+    }
+
     fun directory(spec: TtsModelSpec): File {
-        val rootDir = File(root, spec.id)
-        if (spec.modelName.isBlank()) return rootDir
-        return rootDir.walkTopDown().firstOrNull { it.isFile && it.name == spec.modelName }?.parentFile ?: rootDir
+        val rootDir = rootDir(spec)
+        return modelFile(spec)?.parentFile ?: rootDir
     }
 
     fun isInstalled(spec: TtsModelSpec): Boolean {
-        val rootDir = File(root, spec.id)
-        return rootDir.isDirectory && (spec.modelName.isBlank() || rootDir.walkTopDown().any { it.isFile && it.name == spec.modelName })
+        return modelFile(spec) != null
     }
 
     suspend fun download(spec: TtsModelSpec, progress: (Int) -> Unit) = withContext(Dispatchers.IO) {
-        val target = directory(spec)
+        val target = rootDir(spec)
+        val installing = File(root, "${spec.id}.installing")
         val archive = File(root, "${spec.id}.part")
         val connection = URL(spec.archiveName).openConnection() as HttpURLConnection
         connection.connectTimeout = 20_000
@@ -43,14 +51,15 @@ class ModelRepository(context: Context) {
             }
         } }
         target.deleteRecursively()
-        target.mkdirs()
+        installing.deleteRecursively()
+        installing.mkdirs()
         TarArchiveInputStream(archive.inputStream().buffered()).use { tar ->
             var entry = tar.nextTarEntry
             while (entry != null) {
-                val relative = entry.name.substringAfter('/', entry.name)
+                val relative = entry.name.trimStart('/').substringAfter('/', entry.name.trimStart('/'))
                 if (relative.isNotBlank()) {
-                    val output = File(target, relative)
-                    check(output.canonicalPath.startsWith(target.canonicalPath + File.separator)) { "Archivo fuera del modelo" }
+                    val output = File(installing, relative)
+                    check(output.canonicalPath.startsWith(installing.canonicalPath + File.separator)) { "Archivo fuera del modelo" }
                     if (entry.isDirectory) output.mkdirs() else {
                         output.parentFile?.mkdirs()
                         output.outputStream().use { tar.copyTo(it) }
@@ -60,6 +69,20 @@ class ModelRepository(context: Context) {
             }
         }
         archive.delete()
-        check(isInstalled(spec)) { "El paquete no contiene ${spec.modelName.ifBlank { "los archivos del modelo" }}" }
+        check(modelFileIn(installing, spec) != null) {
+            "El paquete no contiene ${spec.modelName.ifBlank { "los archivos del modelo" }}"
+        }
+        File(installing, INSTALL_MARKER).writeText(spec.id)
+        check(installing.renameTo(target)) { "No se pudo guardar el modelo descargado" }
+    }
+
+    private fun modelFileIn(directory: File, spec: TtsModelSpec): File? {
+        if (!directory.isDirectory) return null
+        if (spec.modelName.isBlank()) return directory.walkTopDown().firstOrNull { it.isFile && it.name == "tts.json" }
+        return directory.walkTopDown().firstOrNull { it.isFile && it.name == spec.modelName }
+    }
+
+    companion object {
+        private const val INSTALL_MARKER = ".bookreader-installed"
     }
 }

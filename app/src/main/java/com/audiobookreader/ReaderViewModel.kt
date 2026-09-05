@@ -45,7 +45,11 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     private val models = ModelRepository(appContext)
     private val progressRepository = ProgressRepository(appContext)
     private val audioCache = AudioCacheRepository(appContext)
-    private val _state = MutableStateFlow(ReaderState())
+    private val settings = appContext.getSharedPreferences("bookreader-settings", Context.MODE_PRIVATE)
+    private val initialModel = ModelCatalog.models.firstOrNull {
+        it.id == settings.getString(KEY_SELECTED_MODEL, null)
+    } ?: ModelCatalog.models.first()
+    private val _state = MutableStateFlow(ReaderState(selectedModel = initialModel))
     val state: StateFlow<ReaderState> = _state.asStateFlow()
 
     init { refreshModels() }
@@ -74,6 +78,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
 
     fun selectModel(spec: TtsModelSpec) {
         val book = _state.value.selectedBook
+        settings.edit().putString(KEY_SELECTED_MODEL, spec.id).apply()
         _state.value = _state.value.copy(
             selectedModel = spec,
             cacheStatus = book?.let { audioCache.status(it, spec) },
@@ -121,6 +126,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                 .onSuccess {
                     refreshModels()
                     val book = _state.value.selectedBook
+                    settings.edit().putString(KEY_SELECTED_MODEL, spec.id).apply()
                     _state.value = _state.value.copy(
                         selectedModel = spec,
                         downloading = null,
@@ -180,6 +186,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
 
     companion object {
         private const val IntentFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+        private const val KEY_SELECTED_MODEL = "selected_model"
         fun factory(context: Context) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T = ReaderViewModel(context.applicationContext) as T
