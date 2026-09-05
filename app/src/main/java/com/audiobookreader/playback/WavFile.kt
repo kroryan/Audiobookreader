@@ -3,6 +3,7 @@ package com.audiobookreader.playback
 import java.io.DataOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -21,6 +22,26 @@ object WavFile {
                 val value = (sample.coerceIn(-1f, 1f) * 32767f).toInt()
                 leShort(value)
             }
+        }
+    }
+
+    fun durationMs(file: File, sampleRate: Int): Long {
+        if (sampleRate <= 0 || file.length() <= 44L) return 0L
+        val sampleCount = (file.length() - 44L) / 2L
+        return sampleCount * 1000L / sampleRate
+    }
+
+    fun durationMs(file: File): Long {
+        if (file.length() <= 44L) return 0L
+        RandomAccessFile(file, "r").use { input ->
+            input.seek(24L)
+            val b0 = input.read()
+            val b1 = input.read()
+            val b2 = input.read()
+            val b3 = input.read()
+            if (listOf(b0, b1, b2, b3).any { it < 0 }) return 0L
+            val sampleRate = b0 or (b1 shl 8) or (b2 shl 16) or (b3 shl 24)
+            return durationMs(file, sampleRate)
         }
     }
 }

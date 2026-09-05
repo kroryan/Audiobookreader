@@ -8,6 +8,7 @@ data class Book(
     val sourceUri: Uri,
     val chapters: List<Chapter>,
     val language: String = "es",
+    val coverPath: String? = null,
 )
 
 data class Chapter(

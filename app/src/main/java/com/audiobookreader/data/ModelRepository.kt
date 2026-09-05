@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -58,19 +59,24 @@ class ModelRepository(context: Context) {
         target.deleteRecursively()
         installing.deleteRecursively()
         installing.mkdirs()
-        TarArchiveInputStream(archive.inputStream().buffered()).use { tar ->
-            var entry = tar.nextTarEntry
-            while (entry != null) {
-                val relative = entry.name.trimStart('/').substringAfter('/', entry.name.trimStart('/'))
-                if (relative.isNotBlank()) {
-                    val output = File(installing, relative)
-                    check(output.canonicalPath.startsWith(installing.canonicalPath + File.separator)) { "Archivo fuera del modelo" }
-                    if (entry.isDirectory) output.mkdirs() else {
-                        output.parentFile?.mkdirs()
-                        output.outputStream().use { tar.copyTo(it) }
+        archive.inputStream().buffered().use { compressed ->
+            BZip2CompressorInputStream(compressed).use { uncompressed ->
+                TarArchiveInputStream(uncompressed).use { tar ->
+                    var entry = tar.nextTarEntry
+                    while (entry != null) {
+                        val entryName = entry.name.trimStart('/')
+                        val relative = entryName.substringAfter('/', entryName)
+                        if (relative.isNotBlank()) {
+                            val output = File(installing, relative)
+                            check(output.canonicalPath.startsWith(installing.canonicalPath + File.separator)) { "Archivo fuera del modelo" }
+                            if (entry.isDirectory) output.mkdirs() else {
+                                output.parentFile?.mkdirs()
+                                output.outputStream().use { tar.copyTo(it) }
+                            }
+                        }
+                        entry = tar.nextTarEntry
                     }
                 }
-                entry = tar.nextTarEntry
             }
         }
         archive.delete()
