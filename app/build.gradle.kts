@@ -13,14 +13,14 @@ if (signingPropertiesFile.exists()) {
 
 android {
     namespace = "com.audiobookreader"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.audiobookreader"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 2
-        versionName = "0.1.1"
+        targetSdk = 36
+        versionCode = 3
+        versionName = "0.1.2"
     }
 
     signingConfigs {
