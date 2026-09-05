@@ -29,6 +29,23 @@ class AudioCacheRepository(context: Context) {
 
     fun clearBook(bookId: String) { File(root, bookId).deleteRecursively() }
 
+    fun clearFrom(bookId: String, modelId: String, firstChunk: Int) {
+        val directory = File(root, "$bookId/$modelId")
+        directory.listFiles().orEmpty()
+            .filter { file ->
+                val isTemporary = file.name.endsWith(".wav.part")
+                val index = file.nameWithoutExtension.substringBeforeLast(".wav").substringAfterLast('-').toIntOrNull()
+                (isTemporary || file.extension == "wav") && index?.let { it >= firstChunk } == true
+            }
+            .forEach(File::delete)
+    }
+
+    fun clearTemporary(bookId: String, modelId: String) {
+        File(root, "$bookId/$modelId").listFiles().orEmpty()
+            .filter { it.name.endsWith(".wav.part") }
+            .forEach(File::delete)
+    }
+
     fun clearAll() { root.deleteRecursively(); root.mkdirs() }
 
     fun canWriteMore(bytesToAdd: Long): Boolean {

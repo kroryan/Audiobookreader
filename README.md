@@ -11,11 +11,13 @@ MVP de lector de PDF/EPUB/texto para Android con síntesis local y reproducción
 - Al terminar una descarga, el modelo queda seleccionado automáticamente y se comprueba su contenido real aunque el archivo esté dentro de subcarpetas del paquete.
 - Adaptador `OfflineTts` para Piper/VITS, Coqui VITS, Mimic3 VITS, Kokoro y Supertonic.
 - Generación de audio PCM a WAV por fragmentos y playlist de Media3.
+- Generación progresiva reanudable: la reproducción empieza tras preparar los primeros fragmentos y el audio temporal generado por adelantado se elimina al detener un libro incompleto.
 - `MediaSessionService` para notificación, controles del sistema, pantalla bloqueada y salida de la aplicación.
-- Porcentaje de lectura, posición exacta por fragmento, marcadores y persistencia local del progreso.
+- Porcentaje de lectura, posición exacta por fragmento, marcadores, reinicio de posición y persistencia local del progreso.
 - Resaltado visual del fragmento completo que se está reproduciendo, con desplazamiento automático del lector.
 - Porcentaje y tamaño del audio preparado por libro, limpieza individual o global de caché y límite de 512 MB para evitar llenar el almacenamiento.
 - Tema claro/oscuro siguiendo automáticamente el tema del sistema, con contraste específico para lectura.
+- Importación de modelos ONNX locales desde Ajustes. Se solicita el código de idioma y se exige `tokens.txt`; se pueden seleccionar también el `.onnx.json`, léxicos y otros archivos auxiliares. Se almacenan dentro del sandbox privado de BookReader.
 - Icono original en `assets/bookreader-icon.png`, usado también por el APK.
 
 El proyecto está pensado para Android Studio. La compilación debug verificada queda en `app/build/outputs/apk/debug/app-debug.apk`. El APK contiene el motor nativo, pero no contiene modelos TTS ni archivos WAV: ambos se gestionan durante el uso.

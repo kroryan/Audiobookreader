@@ -86,6 +86,29 @@ class PlaybackService : MediaSessionService() {
                     if (player.playbackState == Player.STATE_ENDED) player.play()
                 }
             }
+            ACTION_STOP -> {
+                saveProgress()
+                stopSelf()
+            }
+            ACTION_RESET -> {
+                val resetBookId = intent.getStringExtra(EXTRA_BOOK_ID)
+                val resetItemCount = intent.getIntExtra(EXTRA_ITEM_COUNT, 1).coerceAtLeast(1)
+                val wasPlayingBook = resetBookId != null && resetBookId == bookId
+                if (wasPlayingBook) {
+                    // Move the player first so the shutdown save cannot restore the old position.
+                    player.seekTo(0, 0L)
+                    player.stop()
+                }
+                if (!resetBookId.isNullOrBlank()) {
+                    progressRepository.save(ReadingProgress(resetBookId, 0, 0L, resetItemCount))
+                    if (wasPlayingBook) {
+                        bookId = resetBookId
+                        itemCount = resetItemCount
+                        publishProgress(0, 0L)
+                    }
+                }
+                if (wasPlayingBook || bookId == null) stopSelf()
+            }
         }
         return super.onStartCommand(intent, flags, startId)
     }
@@ -113,6 +136,8 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_PROGRESS = "com.audiobookreader.action.PROGRESS"
         private const val ACTION_PLAY = "com.audiobookreader.action.PLAY_BOOK"
         private const val ACTION_APPEND = "com.audiobookreader.action.APPEND_BOOK_AUDIO"
+        private const val ACTION_STOP = "com.audiobookreader.action.STOP_BOOK"
+        private const val ACTION_RESET = "com.audiobookreader.action.RESET_BOOK"
         private const val EXTRA_PATHS = "paths"
         private const val EXTRA_START = "start"
         private const val EXTRA_POSITION = "position"
@@ -140,23 +165,41 @@ class PlaybackService : MediaSessionService() {
                 .putExtra(EXTRA_BOOK_ID, bookId)
             ContextCompat.startForegroundService(context, intent)
         }
+
+        fun stop(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, PlaybackService::class.java).setAction(ACTION_STOP))
+        }
+
+        fun reset(context: Context, bookId: String, itemCount: Int) {
+            val intent = Intent(context, PlaybackService::class.java)
+                .setAction(ACTION_RESET)
+                .putExtra(EXTRA_BOOK_ID, bookId)
+                .putExtra(EXTRA_ITEM_COUNT, itemCount)
+            ContextCompat.startForegroundService(context, intent)
+        }
     }
 
     private fun saveProgress() {
         val id = bookId ?: return
+        if (player.playbackState == Player.STATE_ENDED && player.mediaItemCount >= itemCount && itemCount > 0) {
+            progressRepository.save(ReadingProgress(id, itemCount, 0L, itemCount))
+            publishProgress(itemCount, 0L)
+            return
+        }
         val index = player.currentMediaItemIndex.coerceAtLeast(0)
         val position = player.currentPosition.coerceAtLeast(0L)
         progressRepository.save(ReadingProgress(id, index, position, itemCount))
         publishProgress()
     }
 
-    private fun publishProgress() {
+    private fun publishProgress(indexOverride: Int? = null, positionOverride: Long? = null) {
         val id = bookId ?: return
-        val index = player.currentMediaItemIndex.coerceAtLeast(0)
+        val index = indexOverride ?: player.currentMediaItemIndex.coerceAtLeast(0)
+        val position = positionOverride ?: player.currentPosition.coerceAtLeast(0L)
         sendBroadcast(Intent(ACTION_PROGRESS).setPackage(packageName)
             .putExtra(EXTRA_BOOK_ID, id)
             .putExtra(EXTRA_START, index)
-            .putExtra(EXTRA_POSITION, player.currentPosition.coerceAtLeast(0L))
+            .putExtra(EXTRA_POSITION, position)
             .putExtra(EXTRA_ITEM_COUNT, itemCount))
     }
 

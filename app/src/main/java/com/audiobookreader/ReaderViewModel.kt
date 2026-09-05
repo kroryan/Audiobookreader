@@ -22,6 +22,7 @@ import com.audiobookreader.playback.WavFile
 import com.audiobookreader.tts.SherpaTtsEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +33,7 @@ import java.io.File
 data class ReaderState(
     val books: List<Book> = emptyList(),
     val selectedBook: Book? = null,
+    val availableModels: List<TtsModelSpec> = ModelCatalog.models,
     val selectedModel: TtsModelSpec = ModelCatalog.models.first(),
     val progress: ReadingProgress? = null,
     val bookmarks: List<Bookmark> = emptyList(),
@@ -51,10 +53,11 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     private val audioCache = AudioCacheRepository(appContext)
     private val settings = appContext.getSharedPreferences("bookreader-settings", Context.MODE_PRIVATE)
     private val initialLanguage = AppLanguage.fromCode(settings.getString(KEY_APP_LANGUAGE, null))
-    private val initialModel = ModelCatalog.models.firstOrNull {
+    private val allModels = ModelCatalog.models + models.importedModels()
+    private val initialModel = allModels.firstOrNull {
         it.id == settings.getString(KEY_SELECTED_MODEL, null)
-    } ?: ModelCatalog.models.first()
-    private val _state = MutableStateFlow(ReaderState(selectedModel = initialModel, appLanguage = initialLanguage))
+    } ?: allModels.first()
+    private val _state = MutableStateFlow(ReaderState(availableModels = allModels, selectedModel = initialModel, appLanguage = initialLanguage))
     val state: StateFlow<ReaderState> = _state.asStateFlow()
     private var generationJob: Job? = null
 
@@ -114,14 +117,33 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     }
 
     fun clearSelectedBookCache() {
-        val book = _state.value.selectedBook ?: return
-        audioCache.clearBook(book.id)
-        _state.value = _state.value.copy(cacheStatus = audioCache.status(book, _state.value.selectedModel), message = "Audio preparado eliminado")
+        val current = _state.value
+        val book = current.selectedBook ?: return
+        val job = generationJob
+        generationJob = null
+        job?.cancel()
+        PlaybackService.stop(appContext)
+        viewModelScope.launch(Dispatchers.IO) {
+            job?.cancelAndJoin()
+            audioCache.clearBook(book.id)
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(generating = false, cacheStatus = audioCache.status(book, _state.value.selectedModel), message = "Audio preparado eliminado")
+            }
+        }
     }
 
     fun clearAllAudioCache() {
-        audioCache.clearAll()
-        _state.value = _state.value.copy(cacheStatus = _state.value.selectedBook?.let { audioCache.status(it, _state.value.selectedModel) }, message = "Caché de audio limpiada")
+        val job = generationJob
+        generationJob = null
+        job?.cancel()
+        PlaybackService.stop(appContext)
+        viewModelScope.launch(Dispatchers.IO) {
+            job?.cancelAndJoin()
+            audioCache.clearAll()
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(generating = false, cacheStatus = _state.value.selectedBook?.let { audioCache.status(it, _state.value.selectedModel) }, message = "Caché de audio limpiada")
+            }
+        }
     }
 
     fun updatePlaybackProgress(bookId: String, itemIndex: Int, positionMs: Long, itemCount: Int) {
@@ -145,6 +167,55 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         _state.value = current.copy(bookmarks = progressRepository.bookmarks(book.id), message = "Marcapáginas guardado")
     }
 
+    fun resetSelectedBookProgress() {
+        val current = _state.value
+        val book = current.selectedBook ?: return
+        val itemCount = book.chapters.sumOf { TextChunker.split(it.text).size }.coerceAtLeast(1)
+        val reset = ReadingProgress(book.id, itemIndex = 0, positionMs = 0L, itemCount = itemCount)
+        val job = generationJob
+        generationJob = null
+        job?.cancel()
+        PlaybackService.reset(appContext, book.id, itemCount)
+        progressRepository.save(reset)
+        viewModelScope.launch(Dispatchers.IO) {
+            job?.cancelAndJoin()
+            audioCache.clearTemporary(book.id, current.selectedModel.id)
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(
+                    progress = reset,
+                    generating = false,
+                    cacheStatus = audioCache.status(book, _state.value.selectedModel),
+                    message = "Posición del libro reiniciada",
+                )
+            }
+        }
+    }
+
+    fun stopSelectedPlayback() {
+        val current = _state.value
+        val book = current.selectedBook ?: return
+        val spec = current.selectedModel
+        val saved = current.progress ?: progressRepository.load(book.id)
+        val job = generationJob
+        generationJob = null
+        job?.cancel()
+        progressRepository.save(saved)
+        PlaybackService.stop(appContext)
+        viewModelScope.launch(Dispatchers.IO) {
+            job?.cancelAndJoin()
+            // Keep audio before the current playback point. Any generated
+            // look-ahead is temporary and will be regenerated on resume.
+            audioCache.clearFrom(book.id, spec.id, saved.itemIndex)
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(
+                    generating = false,
+                    cacheStatus = audioCache.status(book, _state.value.selectedModel),
+                    message = "Reproducción detenida; se regenerará desde el fragmento guardado",
+                )
+            }
+        }
+    }
+
     fun downloadModel(spec: TtsModelSpec) {
         if (_state.value.downloading != null) return
         viewModelScope.launch {
@@ -164,6 +235,30 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                 }
                 .onFailure { error ->
                     _state.value = _state.value.copy(downloading = null, message = "Error descargando el modelo: ${error.message}")
+                }
+        }
+    }
+
+    fun importCustomModel(uris: List<Uri>, language: String) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { models.importOnnx(uris, language.trim().lowercase()) }
+                .onSuccess { spec ->
+                    withContext(Dispatchers.Main) {
+                        val available = (_state.value.availableModels + spec).distinctBy { it.id }
+                        settings.edit().putString(KEY_SELECTED_MODEL, spec.id).apply()
+                        _state.value = _state.value.copy(
+                            availableModels = available,
+                            selectedModel = spec,
+                            installed = _state.value.installed + spec.id,
+                            message = "Modelo ONNX importado y seleccionado: ${spec.name}",
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    withContext(Dispatchers.Main) {
+                        _state.value = _state.value.copy(message = "No se pudo importar el modelo: ${error.message}")
+                    }
                 }
         }
     }
@@ -190,8 +285,8 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                 }
                 check(chunks.isNotEmpty()) { "El libro no contiene texto reproducible" }
                 val saved = progressRepository.load(book.id)
-                var start = saved.itemIndex.coerceIn(0, chunks.lastIndex)
-                var startPositionMs = saved.positionMs.coerceAtLeast(0L)
+                var start = if (saved.itemIndex >= chunks.size) 0 else saved.itemIndex.coerceIn(0, chunks.lastIndex)
+                var startPositionMs = if (saved.itemIndex >= chunks.size) 0L else saved.positionMs.coerceAtLeast(0L)
                 val cache = File(appContext.cacheDir, "audio/${book.id}/${spec.id}").also { it.mkdirs() }
                 val initialFiles = mutableListOf<String>()
                 val initialEnd: Int
@@ -264,18 +359,26 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     ): File {
         val output = File(cache, "${chunk.first}-$index.wav")
         if (!output.exists()) {
+            val temporary = File(cache, ".${chunk.first}-$index.wav.part")
+            temporary.delete()
             val samples = engine.generate(chunk.second)
             val estimatedBytes = samples.size.toLong() * 2L + 44L
             check(audioCache.canWriteMore(estimatedBytes)) {
                 "La caché de audio ha alcanzado 512 MB. Límpiala para continuar."
             }
-            WavFile.write(output, samples, engine.sampleRate())
+            // Never expose a partially written WAV as a playable chunk.
+            WavFile.write(temporary, samples, engine.sampleRate())
+            check(temporary.renameTo(output)) { "No se pudo guardar el fragmento generado" }
         }
         return output
     }
 
     private fun refreshModels() {
-        _state.value = _state.value.copy(installed = ModelCatalog.models.filter(models::isInstalled).map { it.id }.toSet())
+        val available = ModelCatalog.models + models.importedModels()
+        _state.value = _state.value.copy(
+            availableModels = available,
+            installed = available.filter(models::isInstalled).map { it.id }.toSet(),
+        )
     }
 
     private fun restoreLibrary() {

@@ -9,7 +9,7 @@ data class ReadingProgress(
     val itemCount: Int = 1,
 ) {
     val percentage: Int
-        get() = if (itemCount <= 0) 0 else ((itemIndex.toDouble() / itemCount) * 100).toInt().coerceIn(0, 99)
+        get() = if (itemCount <= 0) 0 else ((itemIndex.toDouble() / itemCount) * 100).toInt().coerceIn(0, 100)
 }
 
 data class Bookmark(
