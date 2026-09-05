@@ -1,55 +1,54 @@
 # BookReader
 
-MVP de lector de PDF/EPUB/texto para Android con síntesis local y reproducción en segundo plano.
+Android PDF/EPUB/text reader with local text-to-speech and background playback.
 
-## Qué hay ahora
+## Current features
 
-- Importación mediante el selector de documentos de Android.
-- Extracción de texto de PDF, EPUB y archivos de texto/HTML.
-- Catálogo descargable multidioma de modelos de Sherpa-ONNX, filtrable por idioma.
-- Los modelos se descargan y se usan dentro de la aplicación; no se registran como motores TTS del sistema.
-- Al terminar una descarga, el modelo queda seleccionado automáticamente y se comprueba su contenido real aunque el archivo esté dentro de subcarpetas del paquete.
-- Adaptador `OfflineTts` para Piper/VITS, Coqui VITS, Mimic3 VITS, Kokoro y Supertonic.
-- Generación de audio PCM a WAV por fragmentos y playlist de Media3.
-- Generación progresiva reanudable: la reproducción empieza tras preparar los primeros fragmentos y el audio temporal generado por adelantado se elimina al detener un libro incompleto.
-- `MediaSessionService` para notificación, controles del sistema, pantalla bloqueada y salida de la aplicación.
-- Gadget multimedia persistente en la cortina y pantalla bloqueada con pausar/reanudar, retroceso de 15 segundos, avance de 30 segundos y detener.
-- Porcentaje de lectura, posición exacta por fragmento, marcadores, reinicio de posición y persistencia local del progreso.
-- Resaltado visual del fragmento completo que se está reproduciendo. El lector mantiene el scroll manual; cualquier fragmento se puede tocar para elegirlo como punto de inicio y reproducir desde ahí, aunque no esté preparado lo anterior.
-- Navegación por fragmentos anterior/siguiente y barra para buscar dentro del audio preparado.
-- Configuración independiente por libro: modelo descargado, velocidad de lectura y `speaker/voice ID`; al cambiar velocidad o voz se limpia el audio de ese modelo para regenerarlo sin mezclar configuraciones.
-- Porcentaje y tamaño del audio preparado por libro, limpieza individual o global de caché y límite de 512 MB para evitar llenar el almacenamiento.
-- Tema claro/oscuro siguiendo automáticamente el tema del sistema, con contraste específico para lectura.
-- Importación de modelos ONNX locales desde Ajustes. Se solicita el código de idioma ISO 639-1/639-2/639-3 (`es` o `spa`, por ejemplo) y se exige `tokens.txt`; se pueden seleccionar también el `.onnx.json`, léxicos y otros archivos auxiliares. Se almacenan dentro del sandbox privado de BookReader.
-- Icono original en `assets/bookreader-icon.png`, usado también por el APK.
+- Import documents through Android's document picker.
+- Extract text from PDF, EPUB, text, and HTML files.
+- Downloadable multilingual Sherpa-ONNX model catalog with language filtering.
+- Models are downloaded and used inside the app; they are not registered as system TTS engines.
+- After a download completes, the model is selected automatically and its actual contents are validated, including packages containing nested directories.
+- `OfflineTts` adapter for Piper/VITS, Coqui VITS, Mimic3 VITS, Kokoro, and Supertonic.
+- Chunk-based PCM-to-WAV generation with a Media3 playlist.
+- Resumable progressive generation: playback starts after the first chunks are ready, and temporary look-ahead audio is removed when an unfinished book is stopped.
+- `MediaSessionService` for notifications, system controls, lock-screen playback, and playback outside the app.
+- Persistent media controls in the notification shade and on the lock screen, including pause/resume, 15-second rewind, 30-second forward, and stop.
+- Reading percentage, exact chunk position, bookmarks, position reset, and local progress persistence.
+- Visual highlighting of the complete chunk currently being played. Manual scrolling is preserved; any chunk can be tapped to select it as the starting point, even when earlier audio has not been prepared.
+- Previous/next chunk navigation and a seek bar for prepared audio.
+- Per-book settings: downloaded model, reading speed, and `speaker/voice ID`. Changing the speed or voice clears that model's generated audio so it can be regenerated without mixing settings.
+- Prepared-audio percentage and size per book, per-book or global cache cleanup, and a 512 MB limit to prevent excessive storage use.
+- Light/dark theme automatically follows the system theme, with reading-specific contrast.
+- Local ONNX model import from Settings. The user provides an ISO 639-1/639-2/639-3 language code (`es` or `spa`, for example), and `tokens.txt` is required; `.onnx.json`, lexicons, and other auxiliary files can also be selected. Files are stored inside BookReader's private sandbox.
+- Original app icon in `assets/bookreader-icon.png`, also used by the APK.
 
-El proyecto está pensado para Android Studio. La compilación debug verificada queda en `app/build/outputs/apk/debug/app-debug.apk`. El APK contiene el motor nativo, pero no contiene modelos TTS ni archivos WAV: ambos se gestionan durante el uso.
+The project is intended for Android Studio. The verified debug build is generated at `app/build/outputs/apk/debug/app-debug.apk`. The APK contains the native engine, but no TTS models or WAV files; both are managed at runtime.
 
-## Firma de release
+## Release signing
 
-La firma se lee desde `keystore.properties`, que está excluido de Git. Las huellas SHA-256 de Google no son claves privadas y no sirven para firmar; hay que usar el keystore de subida registrado en Google Play Console. Consulta `keystore.properties.example` y ejecuta `./gradlew assembleRelease`. No se han guardado huellas, claves públicas ni secretos en el repositorio.
+Release signing is read from `keystore.properties`, which is excluded from Git. SHA-256 fingerprints shown by Google are not private keys and cannot sign builds; use the upload keystore registered in Google Play Console. See `keystore.properties.example` and run `./gradlew assembleRelease`. No fingerprints, public keys, or secrets are stored in the repository.
 
-## Modelos contemplados
+## Supported model families
 
-La lista se ha contrastado con `scripts/apk/generate-tts-apk-script.py` del checkout de Sherpa-ONNX:
+The list was cross-checked against `scripts/apk/generate-tts-apk-script.py` from the Sherpa-ONNX checkout:
 
-- Piper/VITS: el catálogo disponible de Sherpa-ONNX para decenas de idiomas, incluidos Miro, Davefx y Sharvard para `es_ES`.
-- Coqui VITS y Mimic3 VITS: los paquetes publicados por Sherpa-ONNX que el motor OfflineTts puede ejecutar internamente.
-- Kokoro: v0.19 inglés y v1.0/v1.1 inglés+chino, incluyendo variante INT8.
-- Supertonic 3 INT8: español y otros idiomas en un paquete multilingüe.
+- Piper/VITS: Sherpa-ONNX's catalog for dozens of languages, including Miro, Davefx, and Sharvard for `es_ES`.
+- Coqui VITS and Mimic3 VITS: Sherpa-ONNX packages that the `OfflineTts` engine can run internally.
+- Kokoro: v0.19 English and v1.0/v1.1 English+Chinese, including the INT8 variant.
+- Supertonic 3 INT8: Spanish and other languages in a multilingual package.
 
-Kokoro merece una integración separada: el catálogo de voces original de Kokoro-82M sí incluye español (`ef_dora`, `em_alex`, `em_santa`), pero los paquetes oficiales que Sherpa-ONNX documenta actualmente como `kokoro-multi-lang-v1_0/v1_1` se publican y configuran para inglés+chino. Para usar esas voces españolas en el dispositivo habrá que validar una conversión compatible con el frontend/phonemizer de Sherpa; no se debe presentar como soporte terminado hasta generar audio correcto en un teléfono ARM.
+Kokoro Spanish requires separate validation: the original Kokoro-82M voice catalog includes Spanish (`ef_dora`, `em_alex`, `em_santa`), but the official packages currently documented by Sherpa-ONNX as `kokoro-multi-lang-v1_0/v1_1` are published and configured for English and Chinese. Spanish voices on the device still need a compatible conversion and frontend/phonemizer validation; they should not be presented as finished support until correct audio is confirmed on an ARM phone.
 
-## Pendiente
+## Planned improvements
 
-1. Validar Kokoro español y decidir si se integra como paquete oficial, modelo convertido o backend independiente.
-2. Añadir controles de velocidad, temporizador y selección de voz.
-3. Mostrar licencia y tamaño de cada modelo mediante un manifiesto versionado.
+1. Validate Kokoro Spanish and decide whether to ship it as an official package, converted model, or separate backend.
+2. Add model license and size information through a versioned manifest.
 
-## Fuentes técnicas
+## Technical references
 
 - [Sherpa-ONNX Android TTS](https://github.com/k2-fsa/sherpa-onnx/tree/master/android/SherpaOnnxTtsEngine)
-- [API Kotlin OfflineTts](https://github.com/k2-fsa/sherpa-onnx/blob/master/sherpa-onnx/kotlin-api/Tts.kt)
-- [Catálogo usado por el generador APK](https://github.com/k2-fsa/sherpa-onnx/blob/master/scripts/apk/generate-tts-apk-script.py)
-- [Modelos TTS preentrenados de Sherpa-ONNX](https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/index.html)
-- [Voces españolas de Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md)
+- [OfflineTts Kotlin API](https://github.com/k2-fsa/sherpa-onnx/blob/master/sherpa-onnx/kotlin-api/Tts.kt)
+- [APK generator catalog](https://github.com/k2-fsa/sherpa-onnx/blob/master/scripts/apk/generate-tts-apk-script.py)
+- [Sherpa-ONNX pretrained TTS models](https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/index.html)
+- [Kokoro-82M Spanish voices](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md)
