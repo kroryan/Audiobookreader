@@ -67,11 +67,11 @@ private fun DesktopApp() {
     var downloadingModel by remember { mutableStateOf<String?>(null) }
     var downloadProgress by remember { mutableStateOf(0) }
     var pendingLicenseModel by remember { mutableStateOf<TtsModelSpec?>(null) }
-    var availableModels by remember { mutableStateOf(ModelCatalog.models) }
+    var availableModels by remember { mutableStateOf(ModelCatalog.models + DesktopKokoroVoiceCatalog.voices) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
-        availableModels = ModelCatalog.models + runCatching { DesktopEdgeVoiceRepository().load() }.getOrDefault(emptyList())
+        availableModels = ModelCatalog.models + DesktopKokoroVoiceCatalog.voices + runCatching { DesktopEdgeVoiceRepository().load() }.getOrDefault(emptyList())
     }
 
     MaterialTheme(colors = if (darkMode) darkColors() else lightColors()) {
@@ -223,6 +223,7 @@ private fun ModelsScreen(
                             }
                             when {
                                 model.family.name == "EDGE" -> Text("ONLINE", color = Color(0xFF2E7D32))
+                                model.voiceId.isNotBlank() -> Text("VOICE", color = Color(0xFF1565C0))
                                 model.id == downloadingModel -> {
                                     Text("$downloadProgress%")
                                     LinearProgressIndicator(progress = downloadProgress / 100f)

@@ -17,6 +17,8 @@ data class TtsModelSpec(
     val experimental: Boolean = false,
     /** Microsoft Edge voice short name, for online Edge TTS entries. */
     val edgeVoice: String = "",
+    /** Kokoro voice identifier used by desktop's full voice catalogue. */
+    val voiceId: String = "",
     val licenseSpdx: String = "",
     val licenseUrl: String = "",
     val attribution: String = "",
