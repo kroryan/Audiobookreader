@@ -7,11 +7,21 @@ MVP de lector de PDF/EPUB/texto para Android con síntesis local y reproducción
 - Importación mediante el selector de documentos de Android.
 - Extracción de texto de PDF, EPUB y archivos de texto/HTML.
 - Catálogo descargable de modelos de Sherpa-ONNX.
+- Los modelos se descargan y se usan dentro de la aplicación; no se registran como motores TTS del sistema.
+- Al terminar una descarga, el modelo queda seleccionado automáticamente y se comprueba su contenido real aunque el archivo esté dentro de subcarpetas del paquete.
 - Adaptador `OfflineTts` para Piper/VITS, Coqui VITS, Mimic3 VITS, Kokoro y Supertonic.
 - Generación de audio PCM a WAV por fragmentos y playlist de Media3.
 - `MediaSessionService` para notificación, controles del sistema, pantalla bloqueada y salida de la aplicación.
+- Porcentaje de lectura, posición exacta por fragmento, marcadores y persistencia local del progreso.
+- Porcentaje y tamaño del audio preparado por libro, limpieza individual o global de caché y límite de 512 MB para evitar llenar el almacenamiento.
+- Tema claro/oscuro siguiendo automáticamente el tema del sistema, con contraste específico para lectura.
+- Icono original en `assets/bookreader-icon.png`, usado también por el APK.
 
-El proyecto está pensado para Android Studio. En este entorno no hay SDK/Gradle instalados, por lo que queda pendiente ejecutar el primer `assembleDebug` en una máquina Android preparada y probar el rendimiento con modelos reales.
+El proyecto está pensado para Android Studio. La compilación debug verificada queda en `app/build/outputs/apk/debug/app-debug.apk`. El APK contiene el motor nativo, pero no contiene modelos TTS ni archivos WAV: ambos se gestionan durante el uso.
+
+## Firma de release
+
+La firma se lee desde `keystore.properties`, que está excluido de Git. Las huellas SHA-256 de Google no son claves privadas y no sirven para firmar; hay que usar el keystore de subida registrado en Google Play Console. Consulta `keystore.properties.example` y ejecuta `./gradlew assembleRelease`. No se han guardado huellas, claves públicas ni secretos en el repositorio.
 
 ## Modelos contemplados
 
@@ -27,13 +37,11 @@ Kokoro merece una integración separada: el catálogo de voces original de Kokor
 
 ## Siguiente trabajo
 
-1. Ejecutar y corregir la compilación con el AAR `sherpa-onnx:1.13.7`.
-2. Descargar un modelo español pequeño y probar generación, memoria y factor de tiempo real en varios teléfonos.
-3. Añadir persistencia de libros, posición y modelo seleccionado.
-4. Generar progresivamente la cola para que un libro largo no tenga que esperar a que termine completo.
-5. Añadir resaltado palabra/frase sincronizado, controles de velocidad, temporizador y selección de voz.
-6. Incorporar el catálogo completo upstream mediante un manifiesto versionado y mostrar licencia/tamaño de cada modelo.
-7. Validar Kokoro español y decidir si se integra como paquete oficial, modelo convertido o backend independiente.
+1. Descargar un modelo español pequeño y probar generación, memoria y factor de tiempo real en varios teléfonos.
+2. Generar progresivamente la cola para que un libro largo no tenga que esperar a que termine completo.
+3. Añadir resaltado palabra/frase sincronizado, controles de velocidad, temporizador y selección de voz.
+4. Incorporar el catálogo completo upstream mediante un manifiesto versionado y mostrar licencia/tamaño de cada modelo.
+5. Validar Kokoro español y decidir si se integra como paquete oficial, modelo convertido o backend independiente.
 
 ## Fuentes técnicas
 

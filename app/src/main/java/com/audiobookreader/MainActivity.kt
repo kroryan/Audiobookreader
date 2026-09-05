@@ -9,6 +9,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.audiobookreader.playback.PlaybackService
+import com.audiobookreader.ui.theme.BookReaderTheme
 
 class MainActivity : ComponentActivity() {
     private val readerViewModel by lazy { ReaderViewModel(applicationContext) }
@@ -27,7 +28,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            AudiobookReaderApp(readerViewModel)
+            BookReaderTheme { AudiobookReaderApp(readerViewModel) }
         }
     }
 

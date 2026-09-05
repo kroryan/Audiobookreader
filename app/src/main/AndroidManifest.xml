@@ -6,8 +6,8 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@drawable/ic_bookreader"
-        android:roundIcon="@drawable/ic_bookreader"
+        android:icon="@drawable/bookreader_icon"
+        android:roundIcon="@drawable/bookreader_icon"
         android:label="BookReader"
         android:supportsRtl="true"
         android:theme="@style/Theme.AudiobookReader">

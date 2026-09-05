@@ -11,11 +11,15 @@ import java.net.URL
 class ModelRepository(context: Context) {
     private val root = File(context.filesDir, "tts-models").also { it.mkdirs() }
 
-    fun directory(spec: TtsModelSpec) = File(root, spec.id)
+    fun directory(spec: TtsModelSpec): File {
+        val rootDir = File(root, spec.id)
+        if (spec.modelName.isBlank()) return rootDir
+        return rootDir.walkTopDown().firstOrNull { it.isFile && it.name == spec.modelName }?.parentFile ?: rootDir
+    }
 
     fun isInstalled(spec: TtsModelSpec): Boolean {
-        val dir = directory(spec)
-        return dir.isDirectory && (spec.modelName.isBlank() || File(dir, spec.modelName).exists())
+        val rootDir = File(root, spec.id)
+        return rootDir.isDirectory && (spec.modelName.isBlank() || rootDir.walkTopDown().any { it.isFile && it.name == spec.modelName })
     }
 
     suspend fun download(spec: TtsModelSpec, progress: (Int) -> Unit) = withContext(Dispatchers.IO) {
@@ -56,6 +60,6 @@ class ModelRepository(context: Context) {
             }
         }
         archive.delete()
-        check(isInstalled(spec)) { "El paquete no contiene el modelo esperado" }
+        check(isInstalled(spec)) { "El paquete no contiene ${spec.modelName.ifBlank { "los archivos del modelo" }}" }
     }
 }

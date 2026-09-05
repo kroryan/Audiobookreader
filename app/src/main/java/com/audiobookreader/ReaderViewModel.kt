@@ -120,7 +120,13 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
             runCatching { models.download(spec) { progress -> _state.value = _state.value.copy(downloadProgress = progress) } }
                 .onSuccess {
                     refreshModels()
-                    _state.value = _state.value.copy(downloading = null, message = "Modelo descargado: ${spec.name}")
+                    val book = _state.value.selectedBook
+                    _state.value = _state.value.copy(
+                        selectedModel = spec,
+                        downloading = null,
+                        cacheStatus = book?.let { audioCache.status(it, spec) },
+                        message = "Modelo descargado y seleccionado: ${spec.name}",
+                    )
                 }
                 .onFailure { error ->
                     _state.value = _state.value.copy(downloading = null, message = "Error descargando el modelo: ${error.message}")
