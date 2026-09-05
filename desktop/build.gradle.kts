@@ -26,6 +26,14 @@ dependencies {
     implementation("org.json:json:20240303")
     implementation("org.apache.pdfbox:pdfbox:2.0.30")
     implementation("org.jsoup:jsoup:1.17.2")
+    // Same sherpa-onnx JVM API as Android, with native desktop binaries.
+    implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx-jvm:1.13.7")
+    implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-linux-x64:1.13.7")
+    implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-linux-aarch64:1.13.7")
+    implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-win-x64:1.13.7")
+    implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-win-arm64:1.13.7")
+    implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-osx-x64:1.13.7")
+    implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-osx-aarch64:1.13.7")
 }
 
 compose.desktop {

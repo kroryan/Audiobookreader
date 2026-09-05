@@ -13,6 +13,13 @@ import java.net.URL
 class DesktopModelRepository {
     private val root = modelStorageDirectory()
 
+    fun directory(spec: TtsModelSpec): File = File(root, spec.id)
+
+    fun audioFile(bookPath: String, spec: TtsModelSpec, fragment: Int): File {
+        val bookId = bookPath.hashCode().toUInt().toString(16)
+        return File(applicationDataDirectory(), "audio-cache/$bookId/${spec.id}/$fragment.wav")
+    }
+
     fun isInstalled(spec: TtsModelSpec): Boolean = File(root, spec.id).let { directory ->
         File(directory, INSTALL_MARKER).isFile && modelFile(directory, spec) != null
     }

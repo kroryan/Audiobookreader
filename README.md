@@ -30,7 +30,7 @@ The project is intended for Android Studio. The verified debug build is generate
 
 ## Desktop targets
 
-The desktop module uses the shared Kotlin core and Compose Desktop. Its current preview opens PDF, EPUB, HTML, and text documents, preserves paragraph-aware segmentation, exposes Models and Settings, downloads local model packages beside the executable, and loads the full Edge voice catalogue online. Linux packaging uses `:desktop:packageDeb` plus `scripts/package-appimage.sh`; Windows packaging uses `:desktop:packageMsi` and `:desktop:packageExe` on a Windows build machine. Native installers must be built on their target operating system.
+The desktop module uses the shared Kotlin core and Compose Desktop. It opens PDF, EPUB, HTML, and text documents, preserves paragraph-aware segmentation, provides a bookshelf library with persistent per-book position/bookmarks/cache controls, generates and plays selected fragments with the desktop sherpa-onnx JVM engine, exposes Models and Settings, downloads local model packages beside the executable, and loads the full Edge voice catalogue online. Linux packaging uses `:desktop:packageDeb` plus `scripts/package-appimage.sh`; Windows packaging uses `:desktop:packageMsi` and `:desktop:packageExe` on a Windows build machine. Native installers must be built on their target operating system.
 
 ## Release signing
 
