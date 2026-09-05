@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">BookReader</string>
+    <string name="playback_channel_name">BookReader playback</string>
 </resources>

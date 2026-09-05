@@ -17,6 +17,7 @@ import com.audiobookreader.data.ProgressRepository
 import com.audiobookreader.data.ReadingProgress
 import com.audiobookreader.data.TtsModelSpec
 import com.audiobookreader.data.TextChunker
+import com.audiobookreader.data.LanguageCodes
 import com.audiobookreader.playback.PlaybackService
 import com.audiobookreader.playback.WavFile
 import com.audiobookreader.tts.SherpaTtsEngine
@@ -242,7 +243,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     fun importCustomModel(uris: List<Uri>, language: String) {
         if (uris.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { models.importOnnx(uris, language.trim().lowercase()) }
+            runCatching { models.importOnnx(uris, LanguageCodes.normalize(language)) }
                 .onSuccess { spec ->
                     withContext(Dispatchers.Main) {
                         val available = (_state.value.availableModels + spec).distinctBy { it.id }

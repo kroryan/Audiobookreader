@@ -4,14 +4,18 @@ import android.content.Context
 import android.content.Intent
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.MediaStyleNotificationHelper
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -55,10 +59,40 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        createPlaybackNotification()
-        player = ExoPlayer.Builder(this).build()
+        player = ExoPlayer.Builder(this)
+            .setSeekBackIncrementMs(SEEK_BACK_MS)
+            .setSeekForwardIncrementMs(SEEK_FORWARD_MS)
+            .build()
         player.addListener(playerListener)
-        mediaSession = MediaSession.Builder(this, player).build()
+        mediaSession = MediaSession.Builder(this, player)
+            .setSessionActivity(launchActivityIntent())
+            .setCustomLayout(listOf(
+                CommandButton.Builder()
+                    .setPlayerCommand(Player.COMMAND_SEEK_BACK)
+                    .setIconResId(R.drawable.ic_skip_back)
+                    .setDisplayName("Back 15 seconds")
+                    .build(),
+                CommandButton.Builder()
+                    .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
+                    .setIconResId(R.drawable.ic_skip_forward)
+                    .setDisplayName("Forward 30 seconds")
+                    .build(),
+                CommandButton.Builder()
+                    .setPlayerCommand(Player.COMMAND_STOP)
+                    .setIconResId(R.drawable.ic_stop)
+                    .setDisplayName("Stop")
+                    .build(),
+            ))
+            .build()
+        setMediaNotificationProvider(
+            DefaultMediaNotificationProvider.Builder(this)
+                .setNotificationId(NOTIFICATION_ID)
+                .setChannelId(CHANNEL_ID)
+                .setChannelName(R.string.playback_channel_name)
+                .build()
+                .also { it.setSmallIcon(R.drawable.ic_bookreader) }
+        )
+        createPlaybackNotification()
         progressRepository = ProgressRepository(this)
         handler.post(progressTask)
         handler.post(uiProgressTask)
@@ -88,8 +122,12 @@ class PlaybackService : MediaSessionService() {
             }
             ACTION_STOP -> {
                 saveProgress()
+                player.stop()
                 stopSelf()
             }
+            ACTION_SEEK_BACK -> player.seekBack()
+            ACTION_SEEK_FORWARD -> player.seekForward()
+            ACTION_TOGGLE -> if (player.isPlaying) player.pause() else player.play()
             ACTION_RESET -> {
                 val resetBookId = intent.getStringExtra(EXTRA_BOOK_ID)
                 val resetItemCount = intent.getIntExtra(EXTRA_ITEM_COUNT, 1).coerceAtLeast(1)
@@ -138,6 +176,9 @@ class PlaybackService : MediaSessionService() {
         private const val ACTION_APPEND = "com.audiobookreader.action.APPEND_BOOK_AUDIO"
         private const val ACTION_STOP = "com.audiobookreader.action.STOP_BOOK"
         private const val ACTION_RESET = "com.audiobookreader.action.RESET_BOOK"
+        private const val ACTION_SEEK_BACK = "com.audiobookreader.action.SEEK_BACK"
+        private const val ACTION_SEEK_FORWARD = "com.audiobookreader.action.SEEK_FORWARD"
+        private const val ACTION_TOGGLE = "com.audiobookreader.action.TOGGLE_PLAYBACK"
         private const val EXTRA_PATHS = "paths"
         private const val EXTRA_START = "start"
         private const val EXTRA_POSITION = "position"
@@ -145,6 +186,8 @@ class PlaybackService : MediaSessionService() {
         private const val EXTRA_ITEM_COUNT = "itemCount"
         private const val CHANNEL_ID = "bookreader-playback"
         private const val NOTIFICATION_ID = 4101
+        private const val SEEK_BACK_MS = 15_000L
+        private const val SEEK_FORWARD_MS = 30_000L
 
         fun play(context: Context, files: List<String>, bookId: String, startAt: Int = 0, positionMs: Long = 0L, itemCount: Int = files.size) {
             val intent = Intent(context, PlaybackService::class.java)
@@ -212,10 +255,22 @@ class PlaybackService : MediaSessionService() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_bookreader)
             .setContentTitle("BookReader")
-            .setContentText("Preparando audiolibro…")
+            .setContentText("Audiobook playback")
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setOngoing(true)
             .setShowWhen(false)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
+            .addAction(R.drawable.ic_skip_back, "Back 15 seconds", commandIntent(ACTION_SEEK_BACK, 1))
+            .addAction(android.R.drawable.ic_media_pause, "Pause", commandIntent(ACTION_TOGGLE, 2))
+            .addAction(R.drawable.ic_skip_forward, "Forward 30 seconds", commandIntent(ACTION_SEEK_FORWARD, 3))
+            .addAction(R.drawable.ic_stop, "Stop", commandIntent(ACTION_STOP, 4))
+            .setStyle(
+                MediaStyleNotificationHelper.MediaStyle(mediaSession)
+                    .setShowActionsInCompactView(0, 1, 2, 3)
+                    .setShowCancelButton(true)
+                    .setCancelButtonIntent(commandIntent(ACTION_STOP, 4))
+            )
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
@@ -223,5 +278,19 @@ class PlaybackService : MediaSessionService() {
             startForeground(NOTIFICATION_ID, notification)
         }
     }
+
+    private fun launchActivityIntent(): PendingIntent = PendingIntent.getActivity(
+        this,
+        0,
+        packageManager.getLaunchIntentForPackage(packageName) ?: Intent(this, com.audiobookreader.MainActivity::class.java),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    private fun commandIntent(action: String, requestCode: Int): PendingIntent = PendingIntent.getService(
+        this,
+        requestCode,
+        Intent(this, PlaybackService::class.java).setAction(action),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
 
 }

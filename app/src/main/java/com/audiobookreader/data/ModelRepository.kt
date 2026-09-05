@@ -50,7 +50,7 @@ class ModelRepository(context: Context) {
                 id = item.optString("id"),
                 name = item.optString("name"),
                 family = ModelFamily.PIPER,
-                language = item.optString("language", "all"),
+                language = LanguageCodes.normalize(item.optString("language", "all")),
                 archiveName = "",
                 modelName = item.optString("modelName"),
             ).takeIf { it.id.isNotBlank() && it.modelName.isNotBlank() && isInstalled(it) && File(rootDir(it), "tokens.txt").isFile }
@@ -83,7 +83,7 @@ class ModelRepository(context: Context) {
             id = id,
             name = "ONNX local · ${model.first.substringBeforeLast('.')}",
             family = ModelFamily.PIPER,
-            language = language.ifBlank { "all" },
+            language = LanguageCodes.normalize(language.ifBlank { "all" }),
             archiveName = "",
             modelName = modelName,
         )
