@@ -19,6 +19,7 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation(project(":shared"))
     implementation(compose.desktop.currentOs)
     implementation(compose.material)
@@ -41,7 +42,7 @@ compose.desktop {
         mainClass = "com.audiobookreader.desktop.MainKt"
         nativeDistributions {
             packageName = "BookReader"
-            packageVersion = "0.1.7"
+            packageVersion = "0.1.8"
             description = "Read books aloud with downloadable local voices"
             vendor = "BookReader"
             modules("java.desktop", "java.logging", "java.prefs", "jdk.crypto.ec", "jdk.unsupported")

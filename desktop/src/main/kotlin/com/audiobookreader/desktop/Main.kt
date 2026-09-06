@@ -41,6 +41,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -83,6 +85,7 @@ private fun DesktopApp() {
     var availableModels by remember { mutableStateOf(ModelCatalog.models + DesktopKokoroVoiceCatalog.voices) }
     var filePickerOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val playbackSessions = remember { mutableMapOf<String, DesktopPlaybackSession>() }
 
     fun updateBooks(updated: List<DesktopBook>) {
         books = updated
@@ -115,13 +118,16 @@ private fun DesktopApp() {
                             onOpen = { filePickerOpen = true },
                             onBookOpen = { openedBookPath = it.path },
                             onBookReset = { book ->
-                                updateBooks(books.map { if (it.path == book.path) book.copy(progress = 0, currentFragment = 0) else it })
+                                updateBooks(books.map { if (it.path == book.path) book.copy(progress = 0, currentFragment = 0, positionMs = 0) else it })
                             },
                             onBookRemove = { book -> updateBooks(books.filterNot { it.path == book.path }) },
                         )
                     } else {
                         BookDetailScreen(
                             book = openedBook,
+                            playback = playbackSessions.getOrPut(openedBook.path) {
+                                DesktopPlaybackSession(scope, modelRepository.audioCache(), { model -> DesktopTtsEngine(modelRepository.directory(model), model) })
+                            },
                             availableModels = availableModels,
                             downloadedModels = downloadedModels,
                             modelRepository = modelRepository,
@@ -389,6 +395,7 @@ private fun BookCard(
 @Composable
 private fun BookDetailScreen(
     book: DesktopBook,
+    playback: DesktopPlaybackSession,
     availableModels: List<TtsModelSpec>,
     downloadedModels: Set<String>,
     modelRepository: DesktopModelRepository,
@@ -401,23 +408,48 @@ private fun BookDetailScreen(
     val listState = rememberLazyListState()
     val scrollScope = rememberCoroutineScope()
     var currentFragment by remember(book.path) { mutableStateOf(book.currentFragment.coerceIn(0, chunks.lastIndex.coerceAtLeast(0))) }
-    var playing by remember(book.path) { mutableStateOf(false) }
     var settingsExpanded by remember(book.path) { mutableStateOf(false) }
     var modelMenuExpanded by remember(book.path) { mutableStateOf(false) }
-    var speed by remember(book.path) { mutableStateOf(1f) }
+    var speed by remember(book.path) { mutableStateOf(book.speed) }
     var status by remember(book.path) { mutableStateOf<String?>(null) }
-    val audioPlayer = remember(book.path) { DesktopAudioPlayer() }
-    val scope = rememberCoroutineScope()
+    val playbackState by playback.state.collectAsState()
+    val playing = playbackState.phase == PlaybackPhase.PLAYING
+    val latestBook by rememberUpdatedState(book)
+    val notifyBookChanged by rememberUpdatedState(onBookChanged)
+    val selectedVoiceId = book.modelId.ifBlank { selectedModelId }
     val percentage = if (chunks.size <= 1) 0 else ((currentFragment.toFloat() / (chunks.size - 1)) * 100).toInt().coerceIn(0, 100)
 
-    fun savePosition(index: Int, isPlaying: Boolean = playing) {
+    fun savePosition(index: Int, positionMs: Long = 0) {
         currentFragment = index.coerceIn(0, chunks.lastIndex.coerceAtLeast(0))
-        playing = isPlaying
-        onBookChanged(book.copy(currentFragment = currentFragment, progress = percentageFor(currentFragment, chunks.size)))
+        notifyBookChanged(latestBook.copy(currentFragment = currentFragment, positionMs = positionMs, progress = percentageFor(currentFragment, chunks.size)))
     }
 
+    LaunchedEffect(selectedVoiceId, speed) {
+        availableModels.firstOrNull { it.id == selectedVoiceId }?.let { model ->
+            playback.refreshCache(DesktopPlaybackRequest(book.path, chunks, model, currentFragment, speed = speed))
+        }
+    }
+    LaunchedEffect(playbackState.fragment, playbackState.phase) {
+        if (playbackState.phase in setOf(PlaybackPhase.PREPARING, PlaybackPhase.PLAYING, PlaybackPhase.FINISHED)) {
+            savePosition(playbackState.fragment, playbackState.positionMs)
+        }
+    }
+    LaunchedEffect(playback) {
+        while (true) {
+            kotlinx.coroutines.delay(20_000)
+            val state = playback.state.value
+            if (state.phase == PlaybackPhase.PLAYING) savePosition(state.fragment, state.positionMs)
+        }
+    }
     androidx.compose.runtime.DisposableEffect(book.path) {
-        onDispose { audioPlayer.stop() }
+        onDispose {
+            val state = playback.state.value
+            if (state.phase == PlaybackPhase.PLAYING || state.phase == PlaybackPhase.PREPARING) {
+                notifyBookChanged(latestBook.copy(currentFragment = state.fragment, positionMs = state.positionMs,
+                    progress = percentageFor(state.fragment, chunks.size)))
+            }
+            playback.dispose()
+        }
     }
 
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -428,7 +460,7 @@ private fun BookDetailScreen(
                 Column(Modifier.weight(1f)) {
                     Text(book.title, style = MaterialTheme.typography.h5)
                     Text("${chunks.size} fragments · ${book.progress}% complete")
-                    Text("Voice: ${availableModels.firstOrNull { it.id == selectedModelId }?.name ?: "Select a model"}")
+                    Text("Voice: ${availableModels.firstOrNull { it.id == selectedVoiceId }?.name ?: "Select a model"}")
                 }
             }
             Text("Voice settings", style = MaterialTheme.typography.subtitle1)
@@ -440,17 +472,23 @@ private fun BookDetailScreen(
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         Text("Voice model", color = MaterialTheme.colors.onSurface.copy(alpha = 0.75f))
                         Box {
-                            Button(onClick = { modelMenuExpanded = true }, Modifier.fillMaxWidth()) {
-                                Text(availableModels.firstOrNull { it.id == selectedModelId }?.name ?: "Choose model", maxLines = 1)
+                            Button(onClick = { modelMenuExpanded = true }, Modifier.fillMaxWidth(), enabled = !playbackState.busy) {
+                                Text(availableModels.firstOrNull { it.id == selectedVoiceId }?.name ?: "Choose model", maxLines = 1)
                             }
                             DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
-                                availableModels.filter { it.family.name == "EDGE" || it.voiceId.isNotBlank() || it.id == selectedModelId }.forEach { model ->
-                                    DropdownMenuItem(onClick = { onModelSelected(model.id); modelMenuExpanded = false }) { Text(model.name) }
+                                availableModels.filter { it.family.name == "EDGE" || it.id in downloadedModels || it.id == selectedVoiceId }.forEach { model ->
+                                    DropdownMenuItem(onClick = {
+                                        onModelSelected(model.id)
+                                        onBookChanged(latestBook.copy(modelId = model.id, positionMs = 0))
+                                        modelMenuExpanded = false
+                                    }) { Text(model.name) }
                                 }
                             }
                         }
                         Text("Speed: ${"%.2f".format(speed)}x")
-                        Slider(value = speed, onValueChange = { speed = it }, valueRange = 0.5f..2.5f)
+                        Slider(value = speed, onValueChange = { speed = it }, valueRange = 0.5f..2.5f,
+                            enabled = !playbackState.busy,
+                            onValueChangeFinished = { onBookChanged(latestBook.copy(speed = speed, positionMs = 0)) })
                         Text("Settings are saved for this book", color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f))
                     }
                 }
@@ -458,55 +496,43 @@ private fun BookDetailScreen(
         }
         item {
             status?.let { Text(it, color = MaterialTheme.colors.primary) }
+            if (playbackState.message.isNotBlank()) Text(playbackState.message, color = if (playbackState.phase == PlaybackPhase.ERROR) MaterialTheme.colors.error else MaterialTheme.colors.primary)
+            if (playbackState.phase in setOf(PlaybackPhase.PREPARING, PlaybackPhase.STOPPING, PlaybackPhase.CLEARING)) LinearProgressIndicator(Modifier.fillMaxWidth())
+            Text("Audio ready with these voice settings: ${playbackState.cachedFragments * 100 / chunks.size.coerceAtLeast(1)}% (${playbackState.cachedFragments}/${chunks.size} fragments)")
             Text("Current position: ${percentage}% · fragment ${currentFragment + 1}/${chunks.size}")
             LinearProgressIndicator(progress = percentage / 100f, Modifier.fillMaxWidth())
             OutlinedButton(
-                onClick = { scrollScope.launch { listState.animateScrollToItem(6 + currentFragment) } },
+                onClick = { scrollScope.launch { listState.animateScrollToItem(2 + currentFragment) } },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Go to current position") }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
-                        val model = availableModels.firstOrNull { it.id == selectedModelId }
+                        val model = availableModels.firstOrNull { it.id == selectedVoiceId }
                         when {
                             model == null -> status = "Choose a voice model first"
                             model.family.name == "EDGE" -> status = "Edge voices need an online desktop renderer"
                             !downloadedModels.contains(model.id) || !modelRepository.isInstalled(model) -> status = "Download the selected model first"
                             else -> {
-                                savePosition(currentFragment, true)
-                                status = "Generating fragment ${currentFragment + 1}…"
-                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                    runCatching {
-                                        val output = modelRepository.audioFile(book.path, model, currentFragment)
-                                        if (!output.isFile) {
-                                            DesktopTtsEngine(modelRepository.directory(model), model).use { engine ->
-                                                val samples = engine.render(chunks[currentFragment], 0, speed)
-                                                val temporary = File(output.parentFile, ".${output.name}.part")
-                                                DesktopWavFile.write(temporary, samples, engine.sampleRate())
-                                                check(temporary.renameTo(output)) { "Could not save generated audio" }
-                                            }
-                                        }
-                                        audioPlayer.play(output)
-                                    }.onSuccess {
-                                        status = "Playing fragment ${currentFragment + 1}"
-                                    }.onFailure { error ->
-                                        playing = false
-                                        status = "Playback error: ${error.message}"
-                                    }
-                                }
+                                status = null
+                                onBookChanged(latestBook.copy(modelId = model.id, speed = speed))
+                                playback.play(DesktopPlaybackRequest(book.path, chunks, model, currentFragment,
+                                    positionMs = book.positionMs, speed = speed))
                             }
                         }
                     },
                     modifier = Modifier.weight(1f),
+                    enabled = !playbackState.busy && book.text.isNotBlank(),
                 ) { Text("▶ Play") }
                 OutlinedButton(
-                    onClick = { audioPlayer.stop(); playing = false; status = "Playback stopped; position saved" },
+                    onClick = { savePosition(currentFragment, playbackState.positionMs); status = null; playback.stop() },
                     modifier = Modifier.weight(1f),
+                    enabled = playbackState.phase == PlaybackPhase.PREPARING || playing,
                 ) { Text("■ Stop") }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { if (currentFragment > 0) savePosition(currentFragment - 1, false) }, Modifier.weight(1f)) { Text("‹ Previous") }
-                OutlinedButton(onClick = { if (currentFragment < chunks.lastIndex) savePosition(currentFragment + 1, false) }, Modifier.weight(1f)) { Text("Next ›") }
+                OutlinedButton(onClick = { playback.stop(); if (currentFragment > 0) savePosition(currentFragment - 1) }, Modifier.weight(1f), enabled = playbackState.phase != PlaybackPhase.CLEARING) { Text("‹ Previous") }
+                OutlinedButton(onClick = { playback.stop(); if (currentFragment < chunks.lastIndex) savePosition(currentFragment + 1) }, Modifier.weight(1f), enabled = playbackState.phase != PlaybackPhase.CLEARING) { Text("Next ›") }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
@@ -518,17 +544,18 @@ private fun BookDetailScreen(
                     Modifier.weight(1f),
                 ) { Text("＋ Bookmark") }
                 OutlinedButton(
-                    onClick = { savePosition(0, false); onBookChanged(book.copy(currentFragment = 0, progress = 0, bookmarks = book.bookmarks)) },
+                    onClick = { playback.stop(); savePosition(0) },
                     Modifier.weight(1f),
+                    enabled = playbackState.phase != PlaybackPhase.CLEARING,
                 ) { Text("Reset position") }
             }
-            OutlinedButton(onClick = { status = "Generated audio cache cleared" }, Modifier.fillMaxWidth()) { Text("Clear generated audio") }
+            OutlinedButton(onClick = { status = null; savePosition(currentFragment); playback.clear(book.path) }, Modifier.fillMaxWidth(), enabled = playbackState.phase != PlaybackPhase.CLEARING) { Text("Clear generated audio") }
             if (book.bookmarks.isNotEmpty()) Text("Bookmarks: ${book.bookmarks.joinToString { "${percentageFor(it, chunks.size)}%" }}")
         }
         itemsIndexed(chunks) { index, chunk ->
             val active = playing && currentFragment == index
             Column(
-                Modifier.fillMaxWidth().clickable { savePosition(index, false); status = "Selected fragment ${index + 1}; press Play to start here" }.padding(vertical = 8.dp),
+                Modifier.fillMaxWidth().clickable(enabled = playbackState.phase != PlaybackPhase.CLEARING) { playback.stop(); savePosition(index); status = "Selected fragment ${index + 1}; press Play to start here" }.padding(vertical = 8.dp),
             ) {
                 Text("Fragment ${index + 1}", color = if (active) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface.copy(alpha = 0.7f), fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
                 Text(chunk, fontSize = if (active) 21.sp else 18.sp, lineHeight = if (active) 32.sp else 28.sp, color = MaterialTheme.colors.onSurface)

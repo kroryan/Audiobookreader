@@ -54,6 +54,12 @@ xvfb-run -a bash scripts/package-windows-wine.sh
 
 This path requires Wine 10 with Wine Mono 9.4 installed in that prefix, the Windows x64 JDK, WiX **3.11.2.4516**, and `x86_64-w64-mingw32-gcc`. The small WiX launcher adapter restores the version banner omitted by Wine Mono and skips ICE validation, which Wine cannot execute; native Windows builds keep ICE validation. The adapter is a build tool and is not shipped in the application. Windows installers are not Authenticode-signed; Android signing keys are not used for Windows.
 
+### Desktop playback fixes (0.1.8)
+
+Local playback starts when the selected fragment is ready and continues through the book, keeping one fragment ahead and reusing one TTS engine per session. WAV output is buffered. Stop cancels pending work; because native inference cannot safely be interrupted, cleanup waits for the in-flight inference to return before discarding its result. Clear generated audio stops playback and removes that book's cached audio (including older cache layouts) without removing models or other books.
+
+Cache entries include the text, voice, speaker and speed. Reading position is saved at fragment transitions, every 20 seconds during playback and on Stop; bookmarks and per-book voice/speed settings survive restarts. Desktop regression tests use fake inference/audio outputs and do not play sound: `./gradlew :desktop:test :shared:test`.
+
 ## Release signing
 
 Release signing is read from `keystore.properties`, which is excluded from Git. SHA-256 fingerprints shown by Google are not private keys and cannot sign builds; use the upload keystore registered in Google Play Console. See `keystore.properties.example` and run `./gradlew assembleRelease`. No fingerprints, public keys, or secrets are stored in the repository.

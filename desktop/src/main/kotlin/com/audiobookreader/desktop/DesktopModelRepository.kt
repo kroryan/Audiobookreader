@@ -15,10 +15,8 @@ class DesktopModelRepository {
 
     fun directory(spec: TtsModelSpec): File = File(root, spec.id)
 
-    fun audioFile(bookPath: String, spec: TtsModelSpec, fragment: Int): File {
-        val bookId = bookPath.hashCode().toUInt().toString(16)
-        return File(applicationDataDirectory(), "audio-cache/$bookId/${spec.id}/$fragment.wav")
-    }
+    // Use the same writable location as models, including installed /opt builds.
+    fun audioCache(): DesktopAudioCache = DesktopAudioCache(File(root.parentFile, "audio-cache"))
 
     fun isInstalled(spec: TtsModelSpec): Boolean = File(root, spec.id).let { directory ->
         File(directory, INSTALL_MARKER).isFile && modelFile(directory, spec) != null
