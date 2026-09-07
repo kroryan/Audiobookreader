@@ -18,4 +18,13 @@ object LanguageCodes {
         val clean = code.trim().lowercase().replace('_', '-').substringBefore('-')
         return iso6393To1[clean] ?: clean
     }
+
+    /** Import UI entry point: Piper model metadata is supplied as ISO 639-2. */
+    fun normalizeImportCode(code: String): String {
+        val clean = code.trim().lowercase()
+        require(clean.matches(Regex("[a-z]{3}"))) {
+            "Use a three-letter ISO 639-2 language code, for example spa or eng"
+        }
+        return normalize(clean)
+    }
 }

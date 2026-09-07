@@ -60,7 +60,7 @@ class ModelRepository(context: Context) {
         }
     }.getOrDefault(emptyList())
 
-    fun importOnnx(uris: List<Uri>, language: String, espeakDataTree: Uri): TtsModelSpec {
+    fun importOnnx(uris: List<Uri>, language: String, espeakDataTree: Uri?): TtsModelSpec {
         val names = uris.map { displayName(it) to it }
         val model = names.firstOrNull { it.first.lowercase().endsWith(".onnx") }
             ?: error("Selecciona al menos un archivo .onnx")
@@ -77,10 +77,12 @@ class ModelRepository(context: Context) {
                     File(directory, safeName).outputStream().use { output -> input.copyTo(output) }
                 }
             }
-            val espeakDirectory = File(directory, "espeak-ng-data").also { it.mkdirs() }
-            copyDocumentTree(espeakDataTree, espeakDirectory)
-            check(File(espeakDirectory, "phontab").isFile) {
-                "La carpeta seleccionada no parece ser espeak-ng-data (falta phontab)"
+            if (espeakDataTree != null) {
+                val espeakDirectory = File(directory, "espeak-ng-data").also { it.mkdirs() }
+                copyDocumentTree(espeakDataTree, espeakDirectory)
+                check(File(espeakDirectory, "phontab").isFile) {
+                    "La carpeta seleccionada no parece ser espeak-ng-data (falta phontab)"
+                }
             }
         } catch (error: Throwable) {
             directory.deleteRecursively()
@@ -94,7 +96,7 @@ class ModelRepository(context: Context) {
             language = LanguageCodes.normalize(language.ifBlank { "all" }),
             archiveName = "",
             modelName = modelName,
-            dataDir = "espeak-ng-data",
+            dataDir = if (espeakDataTree != null) "espeak-ng-data" else "",
         )
         File(directory, INSTALL_MARKER).writeText(spec.id)
         val saved = JSONArray(metadata.getString(KEY_IMPORTED_MODELS, "[]"))

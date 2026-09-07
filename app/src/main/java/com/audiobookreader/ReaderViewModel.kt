@@ -377,10 +377,10 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         }
     }
 
-    fun importCustomModel(uris: List<Uri>, language: String, espeakDataTree: Uri) {
+    fun importCustomModel(uris: List<Uri>, language: String, espeakDataTree: Uri?) {
         if (uris.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { models.importOnnx(uris, LanguageCodes.normalize(language), espeakDataTree) }
+            runCatching { models.importOnnx(uris, LanguageCodes.normalizeImportCode(language), espeakDataTree) }
                 .onSuccess { spec ->
                     withContext(Dispatchers.Main) {
                         val available = (_state.value.availableModels + spec).distinctBy { it.id }

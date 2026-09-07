@@ -551,13 +551,14 @@ private fun SettingsScreen(
             Text(strings.importModelHelp)
             OutlinedTextField(
                 value = modelLanguage,
-                onValueChange = { modelLanguage = it.take(12) },
+                onValueChange = { modelLanguage = it.lowercase().filter(Char::isLetter).take(3) },
                 label = { Text(strings.languageCode) },
-                placeholder = { Text("es") },
+                placeholder = { Text("spa") },
+                supportingText = { Text("ISO 639-2 · spa, eng, fra…") },
                 singleLine = true,
             )
             Spacer(Modifier.height(6.dp))
-            Button(onClick = { modelPicker.launch(arrayOf("*/*")) }, enabled = modelLanguage.trim().isNotEmpty()) {
+            Button(onClick = { modelPicker.launch(arrayOf("*/*")) }, enabled = modelLanguage.length == 3) {
                 Text(strings.importModel)
             }
         }
@@ -565,13 +566,13 @@ private fun SettingsScreen(
     if (pendingModelUris != null) {
         AlertDialog(
             onDismissRequest = { pendingModelUris = null },
-            title = { Text(if (state.appLanguage == AppLanguage.SPANISH) "Selecciona espeak-ng-data" else "Select espeak-ng-data") },
+            title = { Text(if (state.appLanguage == AppLanguage.SPANISH) "espeak-ng-data (opcional)" else "espeak-ng-data (optional)") },
             text = {
                 Text(
                     if (state.appLanguage == AppLanguage.SPANISH) {
-                        "Piper necesita esta carpeta para convertir el texto en fonemas. Selecciona la carpeta espeak-ng-data del paquete del modelo."
+                        "Algunos modelos Piper necesitan esta carpeta para convertir el texto en fonemas. Puedes seleccionarla ahora o continuar sin ella."
                     } else {
-                        "Piper needs this folder to convert text to phonemes. Select the model package's espeak-ng-data folder."
+                        "Some Piper models need this folder to convert text to phonemes. You can select it now or continue without it."
                     }
                 )
             },
@@ -581,8 +582,12 @@ private fun SettingsScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingModelUris = null }) {
-                    Text(if (state.appLanguage == AppLanguage.SPANISH) "Cancelar" else "Cancel")
+                TextButton(onClick = {
+                    val modelUris = pendingModelUris
+                    pendingModelUris = null
+                    if (modelUris != null) viewModel.importCustomModel(modelUris, modelLanguage, null)
+                }) {
+                    Text(if (state.appLanguage == AppLanguage.SPANISH) "Omitir (opcional)" else "Skip (optional)")
                 }
             },
         )
