@@ -37,6 +37,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -211,7 +212,8 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
             seekFraction = ((state.progress?.positionMs ?: 0L).toFloat() / state.currentDurationMs.toFloat()).coerceIn(0f, 1f)
         }
     }
-    LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             TextButton(onClick = onBack) { Text("‹ ${strings.library}") }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -365,6 +367,15 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
                 Text(chunk.third, style = MaterialTheme.typography.bodyLarge.copy(fontSize = if (active) 22.sp else 18.sp, lineHeight = if (active) 34.sp else 29.sp, lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None)), color = MaterialTheme.colorScheme.onSurface)
                 if (selected) Text(strings.tapToPlayFragment, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
                 if (!active && index < chunks.lastIndex) Divider(Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            }
+        }
+        }
+        if (listState.firstVisibleItemIndex > 4) {
+            SmallFloatingActionButton(
+                onClick = { scrollScope.launch { listState.animateScrollToItem(0) } },
+                modifier = Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 12.dp),
+            ) {
+                Text("↑", fontSize = 22.sp)
             }
         }
     }

@@ -19,8 +19,8 @@ android {
         applicationId = "com.audiobookreader"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.1.11"
+        versionCode = 14
+        versionName = "0.1.13"
     }
 
     signingConfigs {

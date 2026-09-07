@@ -428,12 +428,12 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                 val initialFiles = mutableListOf<String>()
                 if (spec.family == ModelFamily.EDGE) {
                     check(spec.edgeVoice.isNotBlank()) { "La voz Edge no es válida" }
-                    playWithRenderer(book, spec, requestedStart, chunks, initialFiles) { chunk, index ->
+                    playWithRenderer(book, spec, current.progress, requestedStart, chunks, initialFiles) { chunk, index ->
                         renderEdgeChunk(cache, chunk, index, spec, ttsSettings)
                     }
                 } else {
                     SherpaTtsEngine(models.directory(spec), spec, ttsSettings.speakerId).use { engine ->
-                        playWithRenderer(book, spec, requestedStart, chunks, initialFiles) { chunk, index ->
+                        playWithRenderer(book, spec, current.progress, requestedStart, chunks, initialFiles) { chunk, index ->
                             renderChunk(cache, chunk, index, engine, ttsSettings)
                         }
                     }
@@ -509,17 +509,20 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     private suspend fun playWithRenderer(
         book: Book,
         spec: TtsModelSpec,
+        currentProgress: ReadingProgress?,
         requestedStart: Int?,
         chunks: List<Pair<String, String>>,
         initialFiles: MutableList<String>,
         render: suspend (Pair<String, String>, Int) -> File,
     ) {
-        val saved = progressRepository.load(book.id)
+        // The state receives a one-second progress update from PlaybackService;
+        // prefer it over the 20-second persistence interval when resuming.
+        val saved = currentProgress?.takeIf { it.bookId == book.id } ?: progressRepository.load(book.id)
         val startFrom = requestedStart?.coerceIn(0, chunks.lastIndex)
-        val generationStart = startFrom ?: 0
         var start = startFrom ?: if (saved.itemIndex >= chunks.size) 0 else saved.itemIndex.coerceIn(0, chunks.lastIndex)
         var startPositionMs = if (saved.itemIndex >= chunks.size) 0L else saved.positionMs.coerceAtLeast(0L)
         if (startFrom != null) startPositionMs = 0L
+        val generationStart = start
         var preparedDurationMs = 0L
         var initialEnd = chunks.size
         for (index in generationStart until chunks.size) {
@@ -529,27 +532,32 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
             val preparedCount = index - generationStart + 1
             val enoughChunks = preparedCount >= START_CHUNKS
             val enoughDuration = preparedDurationMs >= MIN_READY_DURATION_MS
-            val enoughForStart = preparedCount >= maxOf(START_CHUNKS, start - generationStart + 1)
+            val enoughForStart = preparedCount >= START_CHUNKS
             if (enoughForStart && (enoughChunks || enoughDuration)) {
                 initialEnd = index + 1
                 break
             }
         }
-        val localStart = start - generationStart
-        check(initialFiles.size > localStart) { "No se pudo preparar el punto seleccionado del libro" }
-        val savedFileDuration = audioDurationMs(File(initialFiles[localStart]))
-        if (startFrom == null && startPositionMs >= savedFileDuration - END_TOLERANCE_MS) {
+        val initialLocalStart = start - generationStart
+        check(initialFiles.size > initialLocalStart) { "No se pudo preparar el punto seleccionado del libro" }
+        val savedFileDuration = audioDurationMs(File(initialFiles[initialLocalStart]))
+        var playbackLocalStart = initialLocalStart
+        if (startFrom == null && savedFileDuration > 0L && startPositionMs >= savedFileDuration - END_TOLERANCE_MS) {
             if (start < chunks.lastIndex) {
                 start += 1
                 startPositionMs = 0L
-            } else {
-                start = 0
-                startPositionMs = 0L
+                playbackLocalStart = start - generationStart
+                if (playbackLocalStart >= initialFiles.size) {
+                    val nextFile = render(chunks[start], start)
+                    initialFiles += nextFile.absolutePath
+                    initialEnd = maxOf(initialEnd, start + 1)
+                }
             }
         }
+        check(playbackLocalStart in initialFiles.indices) { "No se pudo preparar el siguiente fragmento" }
         val progress = ReadingProgress(book.id, start, startPositionMs, chunks.size)
         progressRepository.save(progress)
-        PlaybackService.play(appContext, initialFiles, book.id, localStart, startPositionMs, chunks.size, generationStart)
+        PlaybackService.play(appContext, initialFiles, book.id, playbackLocalStart, startPositionMs, chunks.size, generationStart)
         withContext(Dispatchers.Main) {
             _state.value = _state.value.copy(
                 generating = false,
