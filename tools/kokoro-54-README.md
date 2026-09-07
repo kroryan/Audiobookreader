@@ -94,3 +94,26 @@ speaker ID 53 is em_santa, and voices.bin is 28,200,960 bytes. The final
 voice block is 522,240 bytes and uses float32 values with shape 510 x 1 x 256.
 Keep the original Sherpa-ONNX and Kokoro license and attribution files when
 redistributing the package.
+
+## Model card and licensing
+
+This repository is a derived distribution of the Sherpa-ONNX Kokoro v1.0
+package. The original package is distributed under the Apache License 2.0;
+the complete license text is included as LICENSE in the original package.
+The em_santa embedding is sourced from the public ONNX Community Kokoro
+v1.0 repository and must retain the applicable upstream terms.
+
+Upstream references:
+
+- Sherpa-ONNX: https://github.com/k2-fsa/sherpa-onnx
+- Official Sherpa Kokoro package:
+  https://huggingface.co/csukuangfj/kokoro-multi-lang-v1_0
+- Kokoro voice catalogue and license:
+  https://huggingface.co/hexgrad/Kokoro-82M
+- em_santa source embedding:
+  https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX
+
+This repository does not claim ownership of the Kokoro model or its voice
+embeddings. Redistributors must preserve this notice, the included LICENSE
+file, and all applicable notices from Sherpa-ONNX, Kokoro, espeak-ng and
+other bundled dependencies.
