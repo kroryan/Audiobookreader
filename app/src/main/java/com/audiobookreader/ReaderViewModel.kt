@@ -715,6 +715,22 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         }
     }
 
+    fun clearReferenceAudio() {
+        val current = _state.value
+        val book = current.selectedBook ?: return
+        val path = current.bookTtsSettings.referenceAudioPath
+        if (path.isNotBlank()) {
+            runCatching { File(path).delete() }
+        }
+        val updated = current.bookTtsSettings.copy(referenceAudioPath = "")
+        saveBookTtsSettings(book.id, updated)
+        invalidateBookAudio(book, "Audio de referencia eliminado; el audio se regenerará")
+        _state.value = _state.value.copy(
+            bookTtsSettings = updated,
+            message = "Audio de referencia eliminado",
+        )
+    }
+
     private fun loadReferenceAudio(value: BookTtsSettings): WavFile.Audio? {
         if (value.referenceAudioPath.isBlank()) return null
         return WavFile.read(File(value.referenceAudioPath))

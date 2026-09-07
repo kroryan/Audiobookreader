@@ -372,15 +372,6 @@ private fun defaultBookDirectory(): File {
     return home?.takeIf { it.isDirectory } ?: File(System.getProperty("user.dir", "."))
 }
 
-private fun chooseReferenceWav(): String? {
-    val dialog = FileDialog(null as java.awt.Frame?, "Choose reference WAV", FileDialog.LOAD)
-    dialog.setFilenameFilter(FilenameFilter { _, name -> name.lowercase().endsWith(".wav") })
-    dialog.setVisible(true)
-    val directory = dialog.directory ?: return null
-    val file = dialog.file ?: return null
-    return java.io.File(directory, file).absolutePath
-}
-
 private fun chooseModelFiles(): List<File> {
     val dialog = FileDialog(null as java.awt.Frame?, "Choose ONNX model files", FileDialog.LOAD)
     dialog.isMultipleMode = true
@@ -391,6 +382,76 @@ private fun chooseModelFiles(): List<File> {
     dialog.setVisible(true)
     val directory = dialog.directory ?: return emptyList()
     return dialog.files.map { File(directory, it.name) }
+}
+
+@Composable
+private fun ReferenceAudioPicker(onCancel: () -> Unit, onFileSelected: (String) -> Unit) {
+    var directory by remember { mutableStateOf(defaultBookDirectory()) }
+    var selected by remember { mutableStateOf<File?>(null) }
+    val entries = remember(directory) {
+        directory.listFiles()
+            ?.filter { it.isDirectory || it.extension.equals("wav", ignoreCase = true) }
+            ?.sortedWith(compareBy<File> { !it.isDirectory }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+            .orEmpty()
+    }
+    DialogWindow(
+        onCloseRequest = onCancel,
+        title = "Choose reference WAV",
+        state = rememberDialogState(width = 860.dp, height = 620.dp),
+    ) {
+        MaterialTheme {
+            Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { directory.parentFile?.let { directory = it; selected = null } },
+                        enabled = directory.parentFile != null,
+                    ) { Text("Up") }
+                    Text(directory.absolutePath, modifier = Modifier.weight(1f), color = MaterialTheme.colors.onSurface)
+                }
+                Text("Choose a WAV file containing the reference voice.", color = MaterialTheme.colors.onSurface)
+                Card(Modifier.fillMaxWidth().weight(1f)) {
+                    if (entries.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                if (directory.canRead()) "No WAV files in this folder" else "This folder cannot be read",
+                                color = MaterialTheme.colors.onSurface,
+                            )
+                        }
+                    } else {
+                        LazyColumn(Modifier.fillMaxSize().padding(6.dp)) {
+                            items(entries, key = { it.absolutePath }) { entry ->
+                                val isSelected = selected?.absolutePath == entry.absolutePath
+                                Row(
+                                    Modifier.fillMaxWidth()
+                                        .clickable {
+                                            if (entry.isDirectory) {
+                                                directory = entry
+                                                selected = null
+                                            } else {
+                                                selected = entry
+                                            }
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 11.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Text(if (entry.isDirectory) "📁" else "🔊", color = MaterialTheme.colors.onSurface)
+                                    Text(
+                                        entry.name,
+                                        color = if (isSelected) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Text(selected?.name ?: "No WAV file selected", modifier = Modifier.weight(1f), color = MaterialTheme.colors.onSurface)
+                    TextButton(onClick = onCancel) { Text("Cancel") }
+                    Button(onClick = { selected?.let { onFileSelected(it.absolutePath) } }, enabled = selected != null) { Text("Use audio") }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -528,6 +589,7 @@ private fun BookDetailScreen(
     var showAllModelFamilies by remember(book.path) { mutableStateOf(false) }
     var kokoroVoiceMenuExpanded by remember(book.path) { mutableStateOf(false) }
     var supertonicVoiceMenuExpanded by remember(book.path) { mutableStateOf(false) }
+    var referencePickerOpen by remember(book.path) { mutableStateOf(false) }
     var speed by remember(book.path) { mutableStateOf(book.speed) }
     var referenceText by remember(book.path) { mutableStateOf(book.referenceText) }
     var status by remember(book.path) { mutableStateOf<String?>(null) }
@@ -667,8 +729,25 @@ private fun BookDetailScreen(
                         Text("Settings are saved for this book", color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f))
                         if (selectedModel?.family == com.audiobookreader.data.ModelFamily.POCKET || selectedModel?.family == com.audiobookreader.data.ModelFamily.ZIPVOICE) {
                             Text("Voice cloning", color = MaterialTheme.colors.onSurface.copy(alpha = 0.75f))
-                            OutlinedButton(onClick = { chooseReferenceWav()?.let(onReferenceAudioSelected) }, Modifier.fillMaxWidth()) {
-                                Text(if (book.referenceAudioPath.isBlank()) "Choose reference WAV" else "Reference audio selected")
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = { referencePickerOpen = true },
+                                    Modifier.weight(1f),
+                                    enabled = !playbackState.busy,
+                                ) {
+                                    Text(if (book.referenceAudioPath.isBlank()) "Choose reference WAV" else "Reference audio selected", maxLines = 1)
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        playback.clear(book.path)
+                                        onBookChanged(latestBook.copy(referenceAudioPath = ""))
+                                        status = "Reference audio cleared; generated audio will be rebuilt"
+                                    },
+                                    Modifier.weight(0.65f),
+                                    enabled = book.referenceAudioPath.isNotBlank() && !playbackState.busy,
+                                ) {
+                                    Text("Clear")
+                                }
                             }
                             if (selectedModel.family == com.audiobookreader.data.ModelFamily.ZIPVOICE) {
                                 TextField(
@@ -752,6 +831,15 @@ private fun BookDetailScreen(
                 if (index < chunks.lastIndex) Divider(Modifier.padding(top = 12.dp))
             }
         }
+    }
+    if (referencePickerOpen) {
+        ReferenceAudioPicker(
+            onCancel = { referencePickerOpen = false },
+            onFileSelected = { path ->
+                referencePickerOpen = false
+                onReferenceAudioSelected(path)
+            },
+        )
     }
 }
 

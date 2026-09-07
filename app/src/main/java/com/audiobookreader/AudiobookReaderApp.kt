@@ -204,7 +204,6 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
     var modelMenuExpanded by remember { mutableStateOf(false) }
     var voiceSettingsExpanded by rememberSaveable(book.id) { mutableStateOf(false) }
     var speed by remember(book.id) { mutableFloatStateOf(state.bookTtsSettings.speed) }
-    var speakerText by remember(book.id) { mutableStateOf(state.bookTtsSettings.speakerId.toString()) }
     var referenceText by remember(book.id) { mutableStateOf(state.bookTtsSettings.referenceText) }
     var seekFraction by remember { mutableFloatStateOf(0f) }
     var seeking by remember { mutableStateOf(false) }
@@ -268,36 +267,66 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
                             KokoroVoicePicker(state, viewModel, strings)
                         } else if (state.selectedModel.family == ModelFamily.SUPERTONIC) {
                             SupertonicVoicePicker(state, viewModel)
-                        } else {
-                            OutlinedTextField(
-                                value = speakerText,
-                                onValueChange = { speakerText = it.filter(Char::isDigit).take(2) },
-                                label = { Text(strings.speaker) },
-                                supportingText = { Text("0 = voz principal") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
+                        } else if (state.selectedModel.family == ModelFamily.POCKET) {
+                            Text(
+                                if (state.appLanguage == AppLanguage.SPANISH) {
+                                    "PocketTTS usa el audio de referencia seleccionado; no hay un ID de voz que elegir."
+                                } else {
+                                    "PocketTTS uses the selected reference audio; there is no voice ID to choose."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            OutlinedButton(
-                                onClick = { speakerText.toIntOrNull()?.let(viewModel::setBookSpeakerId) },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) { Text(strings.applyVoiceSettings) }
+                        } else if (state.selectedModel.family == ModelFamily.ZIPVOICE) {
+                            Text(
+                                if (state.appLanguage == AppLanguage.SPANISH) {
+                                    "ZipVoice usa el audio de referencia y su transcripción exacta."
+                                } else {
+                                    "ZipVoice uses the reference audio and its exact transcript."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            Text(
+                                if (state.appLanguage == AppLanguage.SPANISH) {
+                                    "La voz es el modelo seleccionado: ${state.selectedModel.name}"
+                                } else {
+                                    "The voice is the selected model: ${state.selectedModel.name}"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         if (state.selectedModel.referenceAudioRequired) {
                             Text(
                                 if (state.appLanguage == AppLanguage.SPANISH) "Clonación de voz" else "Voice cloning",
                                 style = MaterialTheme.typography.labelLarge,
                             )
-                            OutlinedButton(
-                                onClick = { referencePicker.launch(arrayOf("audio/wav", "audio/x-wav")) },
+                            Row(
                                 modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Text(
-                                    if (state.bookTtsSettings.referenceAudioPath.isBlank()) {
-                                        if (state.appLanguage == AppLanguage.SPANISH) "Elegir audio WAV de referencia" else "Choose reference WAV audio"
-                                    } else {
-                                        if (state.appLanguage == AppLanguage.SPANISH) "Audio de referencia seleccionado" else "Reference audio selected"
-                                    }
-                                )
+                                OutlinedButton(
+                                    onClick = { referencePicker.launch(arrayOf("audio/wav", "audio/x-wav")) },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(
+                                        if (state.bookTtsSettings.referenceAudioPath.isBlank()) {
+                                            if (state.appLanguage == AppLanguage.SPANISH) "Elegir audio WAV de referencia" else "Choose reference WAV audio"
+                                        } else {
+                                            if (state.appLanguage == AppLanguage.SPANISH) "Audio de referencia seleccionado" else "Reference audio selected"
+                                        },
+                                        maxLines = 1,
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = viewModel::clearReferenceAudio,
+                                    enabled = state.bookTtsSettings.referenceAudioPath.isNotBlank(),
+                                    modifier = Modifier.weight(0.55f),
+                                ) {
+                                    Text(if (state.appLanguage == AppLanguage.SPANISH) "Borrar" else "Clear")
+                                }
                             }
                             if (state.selectedModel.referenceTextRequired) {
                                 OutlinedTextField(
