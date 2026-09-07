@@ -80,6 +80,7 @@ private fun DesktopApp() {
     var selectedModelId by remember {
         mutableStateOf(settings.get("selected-model", ModelCatalog.models.firstOrNull()?.id.orEmpty()))
     }
+    var applySelectedModelOnNextBook by remember { mutableStateOf(false) }
     var interfaceLanguage by remember {
         mutableStateOf(if (settings.get("language", "en") == "es") AppLanguage.SPANISH else AppLanguage.ENGLISH)
     }
@@ -105,7 +106,10 @@ private fun DesktopApp() {
         settings.put("selected-model", modelId)
         settings.flush()
         val selected = availableModels.firstOrNull { it.id == modelId } ?: return
-        openedBookPath?.let { path ->
+        val path = openedBookPath
+        if (path == null) {
+            applySelectedModelOnNextBook = true
+        } else {
             updateBooks(books.map { book ->
                 if (book.path != path) book else book.copy(
                     modelId = selected.id,
@@ -115,6 +119,7 @@ private fun DesktopApp() {
                     positionMs = 0,
                 )
             })
+            applySelectedModelOnNextBook = false
         }
     }
 
@@ -152,7 +157,24 @@ private fun DesktopApp() {
                             books = books,
                             message = libraryMessage,
                             onOpen = { filePickerOpen = true },
-                            onBookOpen = { openedBookPath = it.path },
+                            onBookOpen = { selectedBook ->
+                                if (applySelectedModelOnNextBook) {
+                                    val selected = availableModels.firstOrNull { it.id == selectedModelId }
+                                    if (selected != null) {
+                                        updateBooks(books.map { book ->
+                                            if (book.path != selectedBook.path) book else book.copy(
+                                                modelId = selected.id,
+                                                voiceId = if (selected.family == com.audiobookreader.data.ModelFamily.KOKORO) {
+                                                    book.voiceId.ifBlank { ModelCatalog.kokoroVoices.firstOrNull { it.available && it.language == "es" }?.id.orEmpty() }
+                                                } else "",
+                                                positionMs = 0,
+                                            )
+                                        })
+                                    }
+                                    applySelectedModelOnNextBook = false
+                                }
+                                openedBookPath = selectedBook.path
+                            },
                             onBookReset = { book ->
                                 updateBooks(books.map { if (it.path == book.path) book.copy(progress = 0, currentFragment = 0, positionMs = 0) else it })
                             },
