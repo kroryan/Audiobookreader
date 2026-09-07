@@ -76,8 +76,10 @@ private fun DesktopApp() {
     var openedBookPath by remember { mutableStateOf<String?>(null) }
     var libraryMessage by remember { mutableStateOf<String?>(null) }
     var selectedTab by remember { mutableStateOf(0) }
-    var selectedModelId by remember { mutableStateOf(ModelCatalog.models.firstOrNull()?.id.orEmpty()) }
     val settings = remember { Preferences.userRoot().node("com.audiobookreader.settings") }
+    var selectedModelId by remember {
+        mutableStateOf(settings.get("selected-model", ModelCatalog.models.firstOrNull()?.id.orEmpty()))
+    }
     var interfaceLanguage by remember {
         mutableStateOf(if (settings.get("language", "en") == "es") AppLanguage.SPANISH else AppLanguage.ENGLISH)
     }
@@ -96,6 +98,24 @@ private fun DesktopApp() {
     fun updateBooks(updated: List<DesktopBook>) {
         books = updated
         DesktopLibraryStore.save(updated)
+    }
+
+    fun selectModelFromManager(modelId: String) {
+        selectedModelId = modelId
+        settings.put("selected-model", modelId)
+        settings.flush()
+        val selected = availableModels.firstOrNull { it.id == modelId } ?: return
+        openedBookPath?.let { path ->
+            updateBooks(books.map { book ->
+                if (book.path != path) book else book.copy(
+                    modelId = selected.id,
+                    voiceId = if (selected.family == com.audiobookreader.data.ModelFamily.KOKORO) {
+                        book.voiceId.ifBlank { ModelCatalog.kokoroVoices.firstOrNull { it.available && it.language == "es" }?.id.orEmpty() }
+                    } else "",
+                    positionMs = 0,
+                )
+            })
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -163,7 +183,7 @@ private fun DesktopApp() {
                             downloadedModels = downloadedModels,
                             modelRepository = modelRepository,
                             selectedModelId = selectedModelId,
-                            onModelSelected = { selectedModelId = it },
+                            onModelSelected = ::selectModelFromManager,
                             onReferenceAudioSelected = { path ->
                                 updateBooks(books.map { if (it.path == openedBook.path) it.copy(referenceAudioPath = path) else it })
                             },
@@ -178,7 +198,7 @@ private fun DesktopApp() {
                     downloadedModels = downloadedModels,
                     downloadingModel = downloadingModel,
                     downloadProgress = downloadProgress,
-                    onModelSelected = { selectedModelId = it },
+                    onModelSelected = ::selectModelFromManager,
                     onDownloadRequested = { pendingLicenseModel = it },
                 )
                 else -> SettingsScreen(
