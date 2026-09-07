@@ -2,6 +2,11 @@ package com.audiobookreader.data
 
 enum class ModelFamily { PIPER, COQUI, MIMIC3, KOKORO, KITTEN, SUPERTONIC, POCKET, ZIPVOICE, EDGE }
 
+data class TtsRemoteFile(
+    val fileName: String,
+    val url: String,
+)
+
 data class TtsModelSpec(
     val id: String,
     val name: String,
@@ -29,6 +34,8 @@ data class TtsModelSpec(
     val auxiliaryName: String = "",
     val referenceAudioRequired: Boolean = false,
     val referenceTextRequired: Boolean = false,
+    /** Files downloaded individually when the provider does not publish an archive. */
+    val remoteFiles: List<TtsRemoteFile> = emptyList(),
 )
 
 data class KokoroVoice(
@@ -44,8 +51,8 @@ object ModelCatalog {
         "https://github.com/kroryan/Audiobookreader/releases/download/kokoro-v1.0-54/kokoro-multi-lang-v1_0-em-santa.tar.bz2"
     private const val supertonicArchive =
         "${base}sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2"
-    private const val pocketArchive =
-        "${base}sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2"
+    private const val pocketOnnxBase =
+        "https://huggingface.co/KevinAHM/pocket-tts-onnx/resolve/main/onnx/"
     private const val zipVoiceArchive =
         "${base}sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2"
     private const val zipVoiceVocoder =
@@ -317,6 +324,10 @@ vits-piper-zh_CN-chaowen-medium
         "unicode_indexer.bin", "voice.bin",
     )
 
+    val supertonicVoices: List<String> = listOf(
+        "M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5",
+    )
+
     private fun supertonic(language: String): TtsModelSpec = TtsModelSpec(
         id = "supertonic-3-$language",
         name = "Supertonic 3 INT8 · $language · 10 voices",
@@ -333,23 +344,46 @@ vits-piper-zh_CN-chaowen-medium
     )
 
     private val pocketRequiredFiles = listOf(
-        "lm_flow.int8.onnx", "lm_main.int8.onnx", "encoder.onnx", "decoder.int8.onnx",
-        "text_conditioner.onnx", "vocab.json", "token_scores.json",
+        "mimi_encoder.onnx", "text_conditioner.onnx", "tokenizer.model",
+        "flow_lm_main_int8.onnx", "flow_lm_flow_int8.onnx", "mimi_decoder_int8.onnx",
+        "bos_before_voice.npy",
     )
 
-    private val pocket = TtsModelSpec(
-        id = "pocket-tts-int8",
-        name = "PocketTTS INT8 · English · voice cloning",
-        family = ModelFamily.POCKET,
-        language = "en",
-        archiveName = pocketArchive,
-        modelName = "",
-        licenseSpdx = "MIT + model terms",
-        licenseUrl = "https://github.com/kyutai-labs/pocket-tts/blob/main/LICENSE",
-        attribution = "Kyutai Labs and PocketTTS contributors",
-        requiresAcceptance = true,
-        requiredFiles = pocketRequiredFiles,
-        referenceAudioRequired = true,
+    private fun pocket(languageModel: String, language: String, label: String): TtsModelSpec {
+        val files = pocketRequiredFiles.map { file ->
+            TtsRemoteFile(file, "$pocketOnnxBase$languageModel/$file")
+        }
+        return TtsModelSpec(
+            id = "pocket-tts-$languageModel-int8",
+            name = "PocketTTS INT8 · $label · voice cloning",
+            family = ModelFamily.POCKET,
+            language = language,
+            archiveName = "",
+            modelName = "",
+            licenseSpdx = "MIT (code) + CC BY 4.0 (model)",
+            licenseUrl = "https://github.com/kyutai-labs/pocket-tts/blob/main/LICENSE",
+            attribution = "Kyutai Labs; ONNX export by KevinAHM",
+            requiresAcceptance = true,
+            storageId = "pocket-tts-$languageModel-int8",
+            requiredFiles = pocketRequiredFiles,
+            referenceAudioRequired = true,
+            remoteFiles = files,
+        )
+    }
+
+    // These are the current multilingual configurations published by the
+    // Pocket TTS ONNX export. A language model is shared by all voices in it.
+    private val pocketLanguages = listOf(
+        pocket("english_2026-04", "en", "English"),
+        pocket("french_24l", "fr", "French 24L"),
+        pocket("german", "de", "German"),
+        pocket("german_24l", "de", "German 24L"),
+        pocket("italian", "it", "Italian"),
+        pocket("italian_24l", "it", "Italian 24L"),
+        pocket("portuguese", "pt", "Portuguese"),
+        pocket("portuguese_24l", "pt", "Portuguese 24L"),
+        pocket("spanish", "es", "Spanish"),
+        pocket("spanish_24l", "es", "Spanish 24L"),
     )
 
     private val zipVoice = TtsModelSpec(
@@ -379,7 +413,7 @@ vits-piper-zh_CN-chaowen-medium
             // One shared package is used by all Kokoro voices. This package
             // includes the additional Spanish em_santa embedding.
             TtsModelSpec("kokoro-multi-v1-0", "Kokoro v1.0 · 9 languages · 54 voices", ModelFamily.KOKORO, "all", kokoroSantaArchive, "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
-        ) + supertonicLanguages.map(::supertonic) + listOf(pocket, zipVoice)
+        ) + supertonicLanguages.map(::supertonic) + pocketLanguages + listOf(zipVoice)
 
     /** Speaker IDs are the order used by sherpa-onnx's official v1.0 voices.bin. */
     val kokoroVoices: List<KokoroVoice> = listOf(

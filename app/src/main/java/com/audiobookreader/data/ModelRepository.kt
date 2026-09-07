@@ -178,6 +178,10 @@ class ModelRepository(context: Context) {
 
     suspend fun download(spec: TtsModelSpec, progress: (Int) -> Unit) = withContext(Dispatchers.IO) {
         progress(0)
+        if (spec.remoteFiles.isNotEmpty()) {
+            downloadRemoteFiles(spec, progress)
+            return@withContext
+        }
         val target = rootDir(spec)
         val installing = File(root, "${spec.storageId}.installing")
         val archive = File(root, "${spec.storageId}.part")
@@ -263,6 +267,48 @@ class ModelRepository(context: Context) {
         File(installing, INSTALL_MARKER).writeText(spec.storageId)
         check(installing.renameTo(target)) { "No se pudo guardar el modelo descargado" }
         progress(100)
+    }
+
+    private fun downloadRemoteFiles(spec: TtsModelSpec, progress: (Int) -> Unit) {
+        val target = rootDir(spec)
+        val installing = File(root, "${spec.storageId}.installing")
+        installing.deleteRecursively()
+        installing.mkdirs()
+        try {
+            val files = spec.remoteFiles
+            files.forEachIndexed { index, remote ->
+                check(remote.fileName == File(remote.fileName).name && remote.fileName.isNotBlank()) {
+                    "Nombre de archivo remoto no válido"
+                }
+                val temporary = File(installing, ".${remote.fileName}.part")
+                val destination = File(installing, remote.fileName)
+                downloadAuxiliary(remote.url, temporary) { copied, total ->
+                    val start = index * 90 / files.size
+                    val span = 90 / files.size
+                    val withinFile = if (total > 0L) copied * span / total else 0L
+                    progress((start + withinFile).toInt().coerceIn(0, 95))
+                }
+                check(temporary.renameTo(destination)) { "No se pudo instalar ${remote.fileName}" }
+            }
+            check(spec.requiredFiles.all { required ->
+                File(installing, required).isFile && File(installing, required).length() > 0L
+            }) { "La descarga de PocketTTS quedó incompleta" }
+            File(installing, INSTALL_MARKER).writeText(spec.storageId)
+            val backup = File(root, "${spec.storageId}.backup")
+            backup.deleteRecursively()
+            if (target.exists()) {
+                check(target.renameTo(backup)) { "No se pudo reservar el modelo anterior" }
+            }
+            if (!installing.renameTo(target)) {
+                backup.renameTo(target)
+                error("No se pudo activar el modelo descargado")
+            }
+            backup.deleteRecursively()
+            progress(100)
+        } catch (error: Throwable) {
+            installing.deleteRecursively()
+            throw error
+        }
     }
 
     private fun downloadAuxiliary(url: String, target: File, progress: (Long, Long) -> Unit) {

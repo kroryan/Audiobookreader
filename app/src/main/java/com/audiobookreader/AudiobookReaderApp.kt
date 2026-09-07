@@ -264,20 +264,23 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
                             onValueChangeFinished = { viewModel.setBookSpeed(speed) },
                             valueRange = 0.5f..2.5f,
                         )
-                        OutlinedTextField(
-                            value = speakerText,
-                            onValueChange = { speakerText = it.filter(Char::isDigit).take(2) },
-                            label = { Text(strings.speaker) },
-                            supportingText = { Text("0 = voz principal") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        OutlinedButton(
-                            onClick = { speakerText.toIntOrNull()?.let(viewModel::setBookSpeakerId) },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text(strings.applyVoiceSettings) }
                         if (state.selectedModel.family == ModelFamily.KOKORO) {
                             KokoroVoicePicker(state, viewModel, strings)
+                        } else if (state.selectedModel.family == ModelFamily.SUPERTONIC) {
+                            SupertonicVoicePicker(state, viewModel)
+                        } else {
+                            OutlinedTextField(
+                                value = speakerText,
+                                onValueChange = { speakerText = it.filter(Char::isDigit).take(2) },
+                                label = { Text(strings.speaker) },
+                                supportingText = { Text("0 = voz principal") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedButton(
+                                onClick = { speakerText.toIntOrNull()?.let(viewModel::setBookSpeakerId) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(strings.applyVoiceSettings) }
                         }
                         if (state.selectedModel.referenceAudioRequired) {
                             Text(
@@ -500,7 +503,7 @@ private fun ModelCard(
                 Text("One shared download · 31 languages · 10 voices (M1–M5, F1–F5)")
             }
             if (spec.family == ModelFamily.POCKET) {
-                Text("English voice cloning · choose a short reference WAV in Voice settings")
+                Text("Multilingual voice cloning · choose a short reference WAV in Voice settings")
             }
             if (spec.family == ModelFamily.ZIPVOICE) {
                 Text("Chinese + English voice cloning · reference WAV and exact transcript required")
@@ -556,6 +559,36 @@ private fun KokoroVoicePicker(state: ReaderState, viewModel: ReaderViewModel, st
             }
         }
     }
+}
+
+@Composable
+private fun SupertonicVoicePicker(state: ReaderState, viewModel: ReaderViewModel) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = ModelCatalog.supertonicVoices.getOrNull(state.bookTtsSettings.speakerId)
+        ?: ModelCatalog.supertonicVoices.first()
+    Text("Supertonic voice", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Box {
+        Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(selected, maxLines = 1)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ModelCatalog.supertonicVoices.forEachIndexed { index, voice ->
+                DropdownMenuItem(
+                    text = { Text(voice) },
+                    onClick = {
+                        viewModel.setBookSpeakerId(index)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+    Text(
+        if (state.appLanguage == AppLanguage.SPANISH) "La voz se aplica al idioma Supertonic seleccionado."
+        else "The voice is applied to the selected Supertonic language.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 private fun kokoroVoiceLabel(voice: com.audiobookreader.data.KokoroVoice, strings: UiStrings): String = when (voice.id) {

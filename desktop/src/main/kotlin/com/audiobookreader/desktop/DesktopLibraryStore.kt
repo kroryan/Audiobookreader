@@ -14,6 +14,7 @@ data class DesktopBook(
     val modelId: String = "",
     val speed: Float = 1f,
     val speakerId: Int = 0,
+    val voiceId: String = "",
     val referenceAudioPath: String = "",
     val referenceText: String = "",
 )
@@ -33,13 +34,18 @@ object DesktopLibraryStore {
                 if (!file.isFile) return@mapNotNull null
                 runCatching {
                     val saved = state(file.absolutePath)
+                    val storedModel = saved.get("model", "")
+                    val legacyVoice = storedModel.removePrefix("desktop-kokoro-voice-")
+                        .takeIf { storedModel.startsWith("desktop-kokoro-voice-") }
                     DesktopBook(file.absolutePath, file.nameWithoutExtension, DesktopBookReader.read(file),
                         progress = saved.getInt("progress", 0),
                         currentFragment = saved.getInt("fragment", 0),
                         bookmarks = saved.get("bookmarks", "").split(',').mapNotNull(String::toIntOrNull),
                         positionMs = saved.getLong("position-ms", 0),
-                        modelId = saved.get("model", ""), speed = saved.getFloat("speed", 1f),
+                        modelId = if (legacyVoice != null) "kokoro-multi-v1-0" else storedModel,
+                        speed = saved.getFloat("speed", 1f),
                         speakerId = saved.getInt("speaker", 0),
+                        voiceId = saved.get("voice", legacyVoice ?: ""),
                         referenceAudioPath = saved.get("reference-audio", ""), referenceText = saved.get("reference-text", ""))
                 }.getOrNull()
             }
@@ -58,6 +64,7 @@ object DesktopLibraryStore {
                     put("model", book.modelId)
                     putFloat("speed", book.speed)
                     putInt("speaker", book.speakerId)
+                    put("voice", book.voiceId)
                     put("reference-audio", book.referenceAudioPath)
                     put("reference-text", book.referenceText)
                 }

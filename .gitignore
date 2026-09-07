@@ -3,7 +3,11 @@
 local.properties
 build/
 **/build/
+**/.cxx/
+app/src/main/jniLibs/
+app/src/main/third_party/
 *.iml
 keystore.properties
+signing/
 *.jks
 *.keystore

@@ -9,7 +9,7 @@ Android PDF/EPUB/text reader with local text-to-speech and background playback.
 - Downloadable multilingual Sherpa-ONNX model catalog with language filtering.
 - Models are downloaded and used inside the app; they are not registered as system TTS engines.
 - After a download completes, the model is selected automatically and its actual contents are validated, including packages containing nested directories.
-- `OfflineTts` adapter for Piper/VITS, Coqui VITS, Mimic3 VITS, Kokoro, Supertonic, PocketTTS and ZipVoice.
+- `OfflineTts` adapter for Piper/VITS, Coqui VITS, Mimic3 VITS, Kokoro, Supertonic and ZipVoice, plus the native multilingual PocketTTS.cpp runtime.
 - Edge TTS voices loaded from the live public voice catalogue and marked `ONLINE`; no Edge model files are bundled or downloaded.
 - License-aware downloads: models with additional conditions show their license, attribution, obligations, and accept/reject action before downloading.
 - Chunk-based PCM-to-WAV generation with a Media3 playlist.
@@ -19,7 +19,7 @@ Android PDF/EPUB/text reader with local text-to-speech and background playback.
 - Reading percentage, exact chunk position, bookmarks, position reset, and local progress persistence.
 - Visual highlighting of the complete chunk currently being played. Manual scrolling is preserved; any chunk can be tapped to select it as the starting point, even when earlier audio has not been prepared.
 - Previous/next chunk navigation and a seek bar for prepared audio.
-- Per-book settings: downloaded model, reading speed, and `speaker/voice ID`. Changing the speed or voice clears that model's generated audio so it can be regenerated without mixing settings.
+- Per-book settings: downloaded model, reading speed, named Kokoro/Supertonic voice, and voice-cloning reference. Changing the speed or voice clears that model's generated audio so it can be regenerated without mixing settings.
 - Prepared-audio percentage and size per book, per-book or global cache cleanup, and a 512 MB limit to prevent excessive storage use.
 - Light/dark theme automatically follows the system theme, with reading-specific contrast.
 - Local ONNX model import from Settings. The user provides an ISO 639-1/639-2/639-3 language code (`es` or `spa`, for example), and `tokens.txt` is required; `.onnx.json`, lexicons, and other auxiliary files can also be selected. Files are stored inside BookReader's private sandbox.
@@ -30,7 +30,7 @@ The project is intended for Android Studio. The verified debug build is generate
 
 ## Desktop targets
 
-The desktop module uses the shared Kotlin core and Compose Desktop. It opens PDF, EPUB, HTML, and text documents, preserves paragraph-aware segmentation, provides a bookshelf library with persistent per-book position/bookmarks/cache controls, generates and plays selected fragments with the desktop sherpa-onnx JVM engine, exposes Models and Settings, downloads local model packages beside the executable, and loads the full Edge voice catalogue online. Linux packaging uses `:desktop:packageDeb` plus `scripts/package-appimage.sh`; Windows packaging uses `:desktop:packageMsi` and `:desktop:packageExe` on a Windows build machine. Native Gradle packaging tasks run on their target operating system; an alternative Windows packaging path using Wine is documented below.
+The desktop module uses the shared Kotlin core and Compose Desktop. It opens PDF, EPUB, HTML, and text documents, preserves paragraph-aware segmentation, provides a bookshelf library with persistent per-book position/bookmarks/cache controls, generates and plays selected fragments with the desktop sherpa-onnx JVM engine, exposes Models and Settings, downloads local model packages beside the executable, imports local ONNX/Piper files with ISO 639-2 language codes, and loads the full Edge voice catalogue online. Kokoro is one shared downloadable package with its voices selected per book; Supertonic is one package per language with its ten voices selected per book. Linux packaging uses `:desktop:packageDeb` plus `scripts/package-appimage.sh`; Windows packaging uses `:desktop:packageMsi` and `:desktop:packageExe` on a Windows build machine. Native Gradle packaging tasks run on their target operating system; an alternative Windows packaging path using Wine is documented below.
 
 ### Windows installers
 
@@ -72,7 +72,7 @@ The list was cross-checked against `scripts/apk/generate-tts-apk-script.py` from
 - Coqui VITS and Mimic3 VITS: Sherpa-ONNX packages that the `OfflineTts` engine can run internally.
 - Kokoro: the v1.0 multilingual package with 54 verified voice embeddings, including the three Spanish voices, and its INT8 variant. The Android adapter passes the selected Kokoro language to Sherpa-ONNX instead of relying on the default language.
 - Supertonic 3 INT8: one shared package, 31 languages and ten built-in speakers (`M1`–`M5`, `F1`–`F5`).
-- PocketTTS INT8: local English zero-shot voice cloning from a reference WAV.
+- PocketTTS INT8: local multilingual zero-shot voice cloning from a reference WAV. English, French, German, Italian, Portuguese and Spanish language packs are downloaded independently; all voices in a pack reuse the same model.
 - ZipVoice Distill INT8: local Chinese/English zero-shot cloning from a WAV and its exact transcript; the Vocos vocoder is installed automatically.
 
 BookReader uses a verified 54-voice Kokoro v1.0 bundle, including the Spanish `ef_dora`, `em_alex` and `em_santa` embeddings. Model weights are never bundled in the Android APK; they are downloaded on demand and validated after extraction.

@@ -27,8 +27,10 @@ their package notices are retained when extracted.
 - Supertonic: model weights are distributed under OpenRAIL-M; the model's
   use-based restrictions must be respected. The app requests acceptance
   before download.
-- PocketTTS: the Sherpa-ONNX export is an MIT-licensed runtime/model package
-  for English zero-shot voice cloning. The app requires acceptance and a
+- PocketTTS: BookReader uses the multilingual PocketTTS.cpp ONNX runtime
+  together with separately downloaded language packs. The runtime is MIT
+  licensed; Kyutai model weights and the community ONNX export have separate
+  attribution and use conditions. The app requires acceptance and a
   user-provided reference WAV; cloned voices must be used only with consent.
 - ZipVoice: the Sherpa-ONNX distill model is a Chinese/English zero-shot
   voice-cloning model. It requires both a reference WAV and its exact text,
@@ -58,9 +60,15 @@ PocketTTS and ZipVoice are local zero-shot voice-cloning models. BookReader
 does not ship a person's voice recording as a default for cloning. Users are
 responsible for having permission to use any reference audio and for complying
 with applicable disclosure and synthetic-media laws. ZipVoice currently uses
-the upstream bilingual Chinese/English checkpoint; PocketTTS currently uses
-the English Sherpa-ONNX checkpoint. These entries are not presented as
-unsupported multilingual downloads.
+the upstream bilingual Chinese/English checkpoint. PocketTTS language packs
+are downloaded on demand from the documented multilingual ONNX export and
+are not bundled in the APK.
+
+PocketTTS native runtime and model export:
+
+- https://github.com/VolgaGerm/PocketTTS.cpp (MIT)
+- https://huggingface.co/KevinAHM/pocket-tts-onnx (model/export attribution)
+- https://github.com/kyutai-labs/pocket-tts (Kyutai Pocket TTS)
 
 ## Other runtime dependencies
 

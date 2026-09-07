@@ -32,6 +32,7 @@ data class DesktopPlaybackRequest(
     val positionMs: Long = 0,
     val speed: Float = 1f,
     val speakerId: Int = 0,
+    val voiceId: String = "",
     val referenceAudioPath: String = "",
     val referenceText: String = "",
 )
@@ -54,7 +55,7 @@ class DesktopAudioCache(private val root: File) {
 
     fun file(request: DesktopPlaybackRequest, index: Int): File {
         val identity = listOf("wav-v2", request.model.id, request.model.modelName, request.model.voiceId,
-            request.speakerId.toString(), request.speed.toString(), request.referenceAudioPath,
+            request.voiceId, request.speakerId.toString(), request.speed.toString(), request.referenceAudioPath,
             request.referenceText, request.chunks[index]).joinToString("\u0000")
         val digest = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }

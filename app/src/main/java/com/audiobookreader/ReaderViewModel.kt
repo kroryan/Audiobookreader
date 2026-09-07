@@ -450,9 +450,10 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                         referenceAudio = reference?.samples,
                         referenceSampleRate = reference?.sampleRate ?: 0,
                         referenceText = ttsSettings.referenceText.takeIf(String::isNotBlank),
+                        referenceAudioPath = ttsSettings.referenceAudioPath,
                     ).use { engine ->
                         playWithRenderer(book, spec, current.progress, requestedStart, chunks, initialFiles) { chunk, index ->
-                            renderChunk(cache, chunk, index, engine, ttsSettings)
+                            renderChunk(cache, chunk, index, engine, ttsSettings, spec)
                         }
                     }
                 }
@@ -476,12 +477,18 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         index: Int,
         engine: SherpaTtsEngine,
         ttsSettings: BookTtsSettings,
+        spec: TtsModelSpec,
     ): File {
         val output = File(cache, "${chunk.first}-$index.wav")
         if (!output.exists()) {
             val temporary = File(cache, ".${chunk.first}-$index.wav.part")
             temporary.delete()
-            val samples = engine.generate(SpeechText.forOfflineTts(chunk.second), ttsSettings.speakerId, ttsSettings.speed)
+            val speechText = if (spec.family == ModelFamily.SUPERTONIC) {
+                SpeechText.forSupertonicTts(chunk.second)
+            } else {
+                SpeechText.forOfflineTts(chunk.second)
+            }
+            val samples = engine.generate(speechText, ttsSettings.speakerId, ttsSettings.speed)
             val estimatedBytes = samples.size.toLong() * 2L + 44L
             check(audioCache.canWriteMore(estimatedBytes)) {
                 "La caché de audio ha alcanzado 512 MB. Límpiala para continuar."

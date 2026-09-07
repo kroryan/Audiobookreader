@@ -62,6 +62,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.awt.FileDialog
 import java.io.FilenameFilter
+import java.util.prefs.Preferences
 
 fun main() = application {
     Window(onCloseRequest = ::exitApplication, title = "BookReader") {
@@ -76,15 +77,18 @@ private fun DesktopApp() {
     var libraryMessage by remember { mutableStateOf<String?>(null) }
     var selectedTab by remember { mutableStateOf(0) }
     var selectedModelId by remember { mutableStateOf(ModelCatalog.models.firstOrNull()?.id.orEmpty()) }
-    var interfaceLanguage by remember { mutableStateOf(AppLanguage.ENGLISH) }
-    var darkMode by remember { mutableStateOf(false) }
-    var defaultSpeed by remember { mutableStateOf(1f) }
+    val settings = remember { Preferences.userRoot().node("com.audiobookreader.settings") }
+    var interfaceLanguage by remember {
+        mutableStateOf(if (settings.get("language", "en") == "es") AppLanguage.SPANISH else AppLanguage.ENGLISH)
+    }
+    var darkMode by remember { mutableStateOf(settings.getBoolean("dark-mode", false)) }
+    var defaultSpeed by remember { mutableStateOf(settings.getFloat("default-speed", 1f).coerceIn(0.5f, 2.5f)) }
     val modelRepository = remember { DesktopModelRepository() }
     var downloadedModels by remember { mutableStateOf(ModelCatalog.models.filter(modelRepository::isInstalled).map { it.id }.toSet()) }
     var downloadingModel by remember { mutableStateOf<String?>(null) }
     var downloadProgress by remember { mutableStateOf(0) }
     var pendingLicenseModel by remember { mutableStateOf<TtsModelSpec?>(null) }
-    var availableModels by remember { mutableStateOf(ModelCatalog.models + DesktopKokoroVoiceCatalog.voices) }
+    var availableModels by remember { mutableStateOf(ModelCatalog.models + modelRepository.importedModels()) }
     var filePickerOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val playbackSessions = remember { mutableMapOf<String, DesktopPlaybackSession>() }
@@ -95,9 +99,17 @@ private fun DesktopApp() {
     }
 
     LaunchedEffect(Unit) {
-        val models = ModelCatalog.models + DesktopKokoroVoiceCatalog.voices + runCatching { DesktopEdgeVoiceRepository().load() }.getOrDefault(emptyList())
+        val models = (ModelCatalog.models + modelRepository.importedModels() + runCatching { DesktopEdgeVoiceRepository().load() }.getOrDefault(emptyList()))
+            .distinctBy { it.id }
         availableModels = models
         downloadedModels = models.filter(modelRepository::isInstalled).map { it.id }.toSet()
+    }
+
+    LaunchedEffect(interfaceLanguage, darkMode, defaultSpeed) {
+        settings.put("language", if (interfaceLanguage == AppLanguage.SPANISH) "es" else "en")
+        settings.putBoolean("dark-mode", darkMode)
+        settings.putFloat("default-speed", defaultSpeed)
+        settings.flush()
     }
 
     MaterialTheme(colors = if (darkMode) darkColors() else lightColors()) {
@@ -131,7 +143,20 @@ private fun DesktopApp() {
                             book = openedBook,
                             playback = playbackSessions.getOrPut(openedBook.path) {
                                 DesktopPlaybackSession(scope, modelRepository.audioCache(), { request ->
-                                    DesktopTtsEngine(modelRepository.directory(request.model), request.model, request.referenceAudioPath, request.referenceText)
+                                    val runtimeModel = if (request.model.family == com.audiobookreader.data.ModelFamily.KOKORO) {
+                                        request.model.copy(
+                                            voiceId = request.voiceId,
+                                            language = ModelCatalog.kokoroVoices.firstOrNull { it.id == request.voiceId }
+                                                ?.let { ModelCatalog.kokoroLanguage(it.speakerId) }
+                                                ?: request.model.language,
+                                        )
+                                    } else request.model.copy(voiceId = request.voiceId)
+                                    DesktopTtsEngine(
+                                        modelRepository.directory(request.model),
+                                        runtimeModel,
+                                        request.referenceAudioPath,
+                                        request.referenceText,
+                                    )
                                 })
                             },
                             availableModels = availableModels,
@@ -156,7 +181,22 @@ private fun DesktopApp() {
                     onModelSelected = { selectedModelId = it },
                     onDownloadRequested = { pendingLicenseModel = it },
                 )
-                else -> SettingsScreen(interfaceLanguage, darkMode, defaultSpeed, { interfaceLanguage = it }, { darkMode = it }, { defaultSpeed = it })
+                else -> SettingsScreen(
+                    interfaceLanguage,
+                    darkMode,
+                    defaultSpeed,
+                    onLanguageChanged = { interfaceLanguage = it },
+                    onDarkModeChanged = { darkMode = it },
+                    onSpeedChanged = { defaultSpeed = it },
+                    onImportModel = { files, language ->
+                        runCatching { modelRepository.importModel(files, language) }
+                            .onSuccess { imported ->
+                                availableModels = (availableModels + imported).distinctBy { it.id }
+                                downloadedModels = downloadedModels + imported.id
+                            }
+                            .exceptionOrNull()?.message
+                    },
+                )
             }
         }
         if (filePickerOpen) {
@@ -166,7 +206,7 @@ private fun DesktopApp() {
                     filePickerOpen = false
                     runCatching { DesktopBookReader.read(file) }
                         .onSuccess { content ->
-                            val book = DesktopBook(file.absolutePath, file.nameWithoutExtension, content)
+                            val book = DesktopBook(file.absolutePath, file.nameWithoutExtension, content, speed = defaultSpeed)
                             updateBooks((books.filterNot { it.path == book.path } + book).sortedBy { it.title.lowercase() })
                             libraryMessage = null
                             openedBookPath = book.path
@@ -297,6 +337,18 @@ private fun chooseReferenceWav(): String? {
     val directory = dialog.directory ?: return null
     val file = dialog.file ?: return null
     return java.io.File(directory, file).absolutePath
+}
+
+private fun chooseModelFiles(): List<File> {
+    val dialog = FileDialog(null as java.awt.Frame?, "Choose ONNX model files", FileDialog.LOAD)
+    dialog.isMultipleMode = true
+    dialog.setFilenameFilter(FilenameFilter { _, name ->
+        name.lowercase().endsWith(".onnx") || name.lowercase() == "tokens.txt" ||
+            name.lowercase().endsWith(".json") || name.lowercase().endsWith(".txt")
+    })
+    dialog.setVisible(true)
+    val directory = dialog.directory ?: return emptyList()
+    return dialog.files.map { File(directory, it.name) }
 }
 
 @Composable
@@ -431,8 +483,10 @@ private fun BookDetailScreen(
     var currentFragment by remember(book.path) { mutableStateOf(book.currentFragment.coerceIn(0, chunks.lastIndex.coerceAtLeast(0))) }
     var settingsExpanded by remember(book.path) { mutableStateOf(false) }
     var modelMenuExpanded by remember(book.path) { mutableStateOf(false) }
+    var showAllModelFamilies by remember(book.path) { mutableStateOf(false) }
+    var kokoroVoiceMenuExpanded by remember(book.path) { mutableStateOf(false) }
+    var supertonicVoiceMenuExpanded by remember(book.path) { mutableStateOf(false) }
     var speed by remember(book.path) { mutableStateOf(book.speed) }
-    var speakerText by remember(book.path) { mutableStateOf(book.speakerId.toString()) }
     var referenceText by remember(book.path) { mutableStateOf(book.referenceText) }
     var status by remember(book.path) { mutableStateOf<String?>(null) }
     val playbackState by playback.state.collectAsState()
@@ -448,10 +502,11 @@ private fun BookDetailScreen(
         notifyBookChanged(latestBook.copy(currentFragment = currentFragment, positionMs = positionMs, progress = percentageFor(currentFragment, chunks.size)))
     }
 
-    LaunchedEffect(selectedVoiceId, speed) {
+    LaunchedEffect(selectedVoiceId, book.voiceId, book.speakerId, speed, book.referenceAudioPath, book.referenceText) {
         availableModels.firstOrNull { it.id == selectedVoiceId }?.let { model ->
             playback.refreshCache(DesktopPlaybackRequest(book.path, chunks, model, currentFragment, speed = speed,
-                speakerId = book.speakerId, referenceAudioPath = book.referenceAudioPath, referenceText = book.referenceText))
+                speakerId = book.speakerId, voiceId = book.voiceId,
+                referenceAudioPath = book.referenceAudioPath, referenceText = book.referenceText))
         }
     }
     LaunchedEffect(playbackState.fragment, playbackState.phase) {
@@ -485,7 +540,7 @@ private fun BookDetailScreen(
                 Column(Modifier.weight(1f)) {
                     Text(book.title, style = MaterialTheme.typography.h5)
                     Text("${chunks.size} fragments · ${book.progress}% complete")
-                    Text("Voice: ${availableModels.firstOrNull { it.id == selectedVoiceId }?.name ?: "Select a model"}")
+                    Text("Voice: ${selectedVoiceLabel(selectedModel, book)}")
                 }
             }
             Text("Voice settings", style = MaterialTheme.typography.subtitle1)
@@ -498,15 +553,50 @@ private fun BookDetailScreen(
                         Text("Voice model", color = MaterialTheme.colors.onSurface.copy(alpha = 0.75f))
                         Box {
                             Button(onClick = { modelMenuExpanded = true }, Modifier.fillMaxWidth(), enabled = !playbackState.busy) {
-                                Text(availableModels.firstOrNull { it.id == selectedVoiceId }?.name ?: "Choose model", maxLines = 1)
+                                Text(selectedVoiceLabel(selectedModel, book), maxLines = 1)
                             }
                             DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
-                                availableModels.filter { it.family.name == "EDGE" || it.id in downloadedModels || it.id == selectedVoiceId }.forEach { model ->
+                                val activeFamily = selectedModel?.family
+                                availableModels.filter { model ->
+                                    val usable = model.family == com.audiobookreader.data.ModelFamily.EDGE ||
+                                        model.id in downloadedModels || model.id == selectedVoiceId
+                                    usable && (showAllModelFamilies || activeFamily == null || model.family == activeFamily)
+                                }.forEach { model ->
                                     DropdownMenuItem(onClick = {
                                         onModelSelected(model.id)
-                                        onBookChanged(latestBook.copy(modelId = model.id, positionMs = 0))
+                                        val voiceId = if (model.family == com.audiobookreader.data.ModelFamily.KOKORO) {
+                                            latestBook.voiceId.ifBlank {
+                                                ModelCatalog.kokoroVoices.firstOrNull { it.available && it.language == "es" }?.id
+                                                    ?: ModelCatalog.kokoroVoices.firstOrNull { it.available }?.id.orEmpty()
+                                            }
+                                        } else ""
+                                        onBookChanged(latestBook.copy(modelId = model.id, voiceId = voiceId, positionMs = 0))
                                         modelMenuExpanded = false
                                     }) { Text(model.name) }
+                                }
+                            }
+                        }
+                        TextButton(onClick = { showAllModelFamilies = !showAllModelFamilies }) {
+                            Text(if (showAllModelFamilies) "Show only ${selectedModel?.family?.name ?: "current"} voices" else "Change model family")
+                        }
+                        if (selectedModel?.family == com.audiobookreader.data.ModelFamily.KOKORO) {
+                            Text("Kokoro voice", color = MaterialTheme.colors.onSurface.copy(alpha = 0.75f))
+                            Box {
+                                Button(onClick = { kokoroVoiceMenuExpanded = true }, Modifier.fillMaxWidth(), enabled = !playbackState.busy) {
+                                    Text(kokoroVoiceLabel(book.voiceId), maxLines = 1)
+                                }
+                                DropdownMenu(expanded = kokoroVoiceMenuExpanded, onDismissRequest = { kokoroVoiceMenuExpanded = false }) {
+                                    ModelCatalog.kokoroVoices.filter { it.available }.groupBy { it.language }.toSortedMap().forEach { (language, voices) ->
+                                        DropdownMenuItem(onClick = {}, enabled = false) {
+                                            Text(language.uppercase(), fontWeight = FontWeight.Bold, color = MaterialTheme.colors.primary)
+                                        }
+                                        voices.forEach { voice ->
+                                            DropdownMenuItem(onClick = {
+                                                onBookChanged(latestBook.copy(modelId = "kokoro-multi-v1-0", voiceId = voice.id, positionMs = 0))
+                                                kokoroVoiceMenuExpanded = false
+                                            }) { Text(kokoroVoiceLabel(voice.id)) }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -515,15 +605,22 @@ private fun BookDetailScreen(
                             enabled = !playbackState.busy,
                             onValueChangeFinished = { onBookChanged(latestBook.copy(speed = speed, positionMs = 0)) })
                         if (selectedModel?.family == com.audiobookreader.data.ModelFamily.SUPERTONIC) {
-                            TextField(
-                                value = speakerText,
-                                onValueChange = { value ->
-                                    speakerText = value.filter(Char::isDigit).take(2)
-                                    value.toIntOrNull()?.coerceIn(0, 9)?.let { onBookChanged(latestBook.copy(speakerId = it, positionMs = 0)) }
-                                },
-                                label = { Text("Voice (0–9: M1–M5, F1–F5)") },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            Text("Supertonic voice", color = MaterialTheme.colors.onSurface.copy(alpha = 0.75f))
+                            Box {
+                                val selectedSpeaker = ModelCatalog.supertonicVoices.getOrNull(book.speakerId)
+                                    ?: ModelCatalog.supertonicVoices.first()
+                                Button(onClick = { supertonicVoiceMenuExpanded = true }, Modifier.fillMaxWidth(), enabled = !playbackState.busy) {
+                                    Text(supertonicVoiceLabel(selectedSpeaker), maxLines = 1)
+                                }
+                                DropdownMenu(expanded = supertonicVoiceMenuExpanded, onDismissRequest = { supertonicVoiceMenuExpanded = false }) {
+                                    ModelCatalog.supertonicVoices.forEachIndexed { index, voice ->
+                                        DropdownMenuItem(onClick = {
+                                            onBookChanged(latestBook.copy(speakerId = index, positionMs = 0))
+                                            supertonicVoiceMenuExpanded = false
+                                        }) { Text(supertonicVoiceLabel(voice)) }
+                                    }
+                                }
+                            }
                         }
                         Text("Settings are saved for this book", color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f))
                         if (selectedModel?.family == com.audiobookreader.data.ModelFamily.POCKET || selectedModel?.family == com.audiobookreader.data.ModelFamily.ZIPVOICE) {
@@ -531,7 +628,7 @@ private fun BookDetailScreen(
                             OutlinedButton(onClick = { chooseReferenceWav()?.let(onReferenceAudioSelected) }, Modifier.fillMaxWidth()) {
                                 Text(if (book.referenceAudioPath.isBlank()) "Choose reference WAV" else "Reference audio selected")
                             }
-                            if (selectedModel?.family == com.audiobookreader.data.ModelFamily.ZIPVOICE) {
+                            if (selectedModel.family == com.audiobookreader.data.ModelFamily.ZIPVOICE) {
                                 TextField(
                                     value = referenceText,
                                     onValueChange = { referenceText = it; onBookChanged(latestBook.copy(referenceText = it)) },
@@ -561,13 +658,12 @@ private fun BookDetailScreen(
                         val model = availableModels.firstOrNull { it.id == selectedVoiceId }
                         when {
                             model == null -> status = "Choose a voice model first"
-                            model.family.name == "EDGE" -> status = "Edge voices need an online desktop renderer"
-                            !downloadedModels.contains(model.id) || !modelRepository.isInstalled(model) -> status = "Download the selected model first"
+                            model.family.name != "EDGE" && (!downloadedModels.contains(model.id) || !modelRepository.isInstalled(model)) -> status = "Download the selected model first"
                             else -> {
                                 status = null
                                 onBookChanged(latestBook.copy(modelId = model.id, speed = speed))
                                 playback.play(DesktopPlaybackRequest(book.path, chunks, model, currentFragment,
-                                    positionMs = book.positionMs, speed = speed, speakerId = book.speakerId,
+                                    positionMs = book.positionMs, speed = speed, speakerId = book.speakerId, voiceId = book.voiceId,
                                     referenceAudioPath = book.referenceAudioPath, referenceText = book.referenceText))
                             }
                         }
@@ -620,6 +716,27 @@ private fun BookDetailScreen(
 private fun percentageFor(fragment: Int, count: Int): Int =
     if (count <= 1) 0 else ((fragment.toFloat() / (count - 1)) * 100).toInt().coerceIn(0, 100)
 
+private fun kokoroVoiceLabel(id: String): String {
+    val voice = ModelCatalog.kokoroVoices.firstOrNull { it.id == id }
+    if (voice == null) return "Choose a Kokoro voice"
+    val name = when (id) {
+        "ef_dora" -> "Dora"
+        "em_alex" -> "Alex"
+        "em_santa" -> "Santa"
+        else -> id.substringAfter('_').replaceFirstChar { it.uppercase() }
+    }
+    return "$name ($id) · ${voice.language.uppercase()}"
+}
+
+private fun selectedVoiceLabel(model: TtsModelSpec?, book: DesktopBook): String = when {
+    model?.family == com.audiobookreader.data.ModelFamily.KOKORO -> kokoroVoiceLabel(book.voiceId)
+    model == null -> "Choose model"
+    else -> model.name
+}
+
+private fun supertonicVoiceLabel(voice: String): String =
+    "$voice · ${if (voice.startsWith("F")) "female" else "male"}"
+
 @Composable
 private fun ModelsScreen(
     availableModels: List<TtsModelSpec>,
@@ -633,7 +750,10 @@ private fun ModelsScreen(
     var query by remember { mutableStateOf("") }
     var language by remember { mutableStateOf("all") }
     var languageMenuExpanded by remember { mutableStateOf(false) }
-    val languages = availableModels.map { it.language }.filter { it.isNotBlank() }.distinct().sorted()
+    val languages = availableModels.map { it.language }
+        .filter { it.isNotBlank() && it != "all" }
+        .distinct()
+        .sorted()
     val models = remember(query, language, availableModels) {
         availableModels.filter {
             (language == "all" || it.language == language || it.language == "all") &&
@@ -693,7 +813,10 @@ private fun SettingsScreen(
     onLanguageChanged: (AppLanguage) -> Unit,
     onDarkModeChanged: (Boolean) -> Unit,
     onSpeedChanged: (Float) -> Unit,
+    onImportModel: (List<File>, String) -> String?,
 ) {
+    var modelLanguage by remember { mutableStateOf("") }
+    var importMessage by remember { mutableStateOf<String?>(null) }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Text("Settings", style = MaterialTheme.typography.h5)
@@ -721,6 +844,22 @@ private fun SettingsScreen(
         item {
             Text("Model storage", style = MaterialTheme.typography.subtitle1)
             Text("Models are selected per book and downloaded on demand. Generated audio can be cleaned from the book view.")
+        }
+        item {
+            Text("Import local ONNX model", style = MaterialTheme.typography.subtitle1)
+            Text("Select an ONNX file and tokens.txt. Use a three-letter ISO 639-2 code such as spa or eng; espeak-ng-data is optional when the model does not require it.")
+            TextField(
+                value = modelLanguage,
+                onValueChange = { modelLanguage = it.lowercase().filter(Char::isLetter).take(3) },
+                label = { Text("Language code") },
+                placeholder = { Text("spa") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = { importMessage = chooseModelFiles().takeIf { it.isNotEmpty() }?.let { onImportModel(it, modelLanguage) } },
+                enabled = modelLanguage.length == 3,
+            ) { Text("Import model files") }
+            importMessage?.let { Text(it, color = MaterialTheme.colors.error) }
         }
     }
 }

@@ -27,6 +27,7 @@ dependencies {
     implementation("org.json:json:20240303")
     implementation("org.apache.pdfbox:pdfbox:2.0.30")
     implementation("org.jsoup:jsoup:1.17.2")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // Same sherpa-onnx JVM API as Android, with native desktop binaries.
     implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx-jvm:1.13.7")
     implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-linux-x64:1.13.7")
@@ -47,7 +48,7 @@ compose.desktop {
         }
         nativeDistributions {
             packageName = "BookReader"
-            packageVersion = "0.1.14"
+            packageVersion = "0.1.15"
             description = "Read books aloud with downloadable local voices"
             vendor = "BookReader"
             modules("java.desktop", "java.logging", "java.prefs", "jdk.crypto.ec", "jdk.unsupported")

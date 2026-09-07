@@ -14,6 +14,7 @@ import com.k2fsa.sherpa.onnx.OfflineTtsZipVoiceModelConfig
 import com.k2fsa.sherpa.onnx.GenerationConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsCallback
 import java.io.DataOutputStream
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.Dispatchers
@@ -33,9 +34,14 @@ class DesktopTtsEngine(
     private val referenceText: String = "",
 ) : DesktopSpeechEngine {
     private val referenceAudio: ReferenceAudio? = referenceAudioPath.takeIf { it.isNotBlank() }?.let(::readReferenceAudio)
-    private val tts = OfflineTts(offlineConfig(modelDir, spec))
+    private val edge = if (spec.family == com.audiobookreader.data.ModelFamily.EDGE) DesktopEdgeTtsClient() else null
+    private val tts: OfflineTts? = if (edge == null) OfflineTts(offlineConfig(modelDir, spec)) else null
 
     override fun render(text: String, speakerId: Int, speed: Float): FloatArray {
+        if (edge != null) {
+            val audio = edge.synthesize(text, spec.edgeVoice, spec.language, speed)
+            return decodeWave(audio)
+        }
         if (spec.referenceAudioRequired) {
             check(referenceAudio != null) { "Choose a reference WAV before using this voice" }
         }
@@ -61,14 +67,21 @@ class DesktopTtsEngine(
                 else -> emptyMap()
             })
         }
-        return tts.generateWithConfigAndCallback(
-            SpeechText.forOfflineTts(text), config, OfflineTtsCallback { 1 }
+        val speechText = if (spec.family == com.audiobookreader.data.ModelFamily.SUPERTONIC) {
+            SpeechText.forSupertonicTts(text)
+        } else {
+            SpeechText.forOfflineTts(text)
+        }
+        return checkNotNull(tts).generateWithConfigAndCallback(
+            speechText, config, OfflineTtsCallback { 1 }
         ).samples
     }
 
-    override fun sampleRate(): Int = tts.sampleRate
+    override fun sampleRate(): Int = edge?.let { 24_000 } ?: checkNotNull(tts).sampleRate
 
-    override fun close() = tts.release()
+    override fun close() {
+        tts?.release()
+    }
 
     private fun offlineConfig(modelDir: File, spec: TtsModelSpec): OfflineTtsConfig {
         require(spec.modelName.isNotBlank() || spec.family in setOf(
@@ -182,6 +195,30 @@ class DesktopTtsEngine(
         .filter(String::isNotBlank)
         .map { find(root, it).absolutePath }
         .joinToString(",")
+
+    private fun decodeWave(bytes: ByteArray): FloatArray {
+        AudioSystem.getAudioInputStream(ByteArrayInputStream(bytes)).use { source ->
+            val format = source.format
+            val target = javax.sound.sampled.AudioFormat(
+                javax.sound.sampled.AudioFormat.Encoding.PCM_SIGNED,
+                format.sampleRate,
+                16,
+                1,
+                2,
+                format.sampleRate,
+                false,
+            )
+            val decoded = if (format.matches(target)) source else AudioSystem.getAudioInputStream(target, source)
+            decoded.use { stream ->
+                val pcm = stream.readBytes()
+                return FloatArray(pcm.size / 2) { index ->
+                    val low = pcm[index * 2].toInt() and 0xff
+                    val high = pcm[index * 2 + 1].toInt()
+                    ((high shl 8) or low).toShort() / 32768f
+                }
+            }
+        }
+    }
 }
 
 object DesktopWavFile {

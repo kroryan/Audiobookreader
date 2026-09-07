@@ -22,10 +22,21 @@ class SherpaTtsEngine(
     private val referenceAudio: FloatArray? = null,
     private val referenceSampleRate: Int = 0,
     private val referenceText: String? = null,
+    private val referenceAudioPath: String = "",
 ) : AutoCloseable {
-    private val tts = OfflineTts(config = createConfig())
+    private val nativePocket = if (spec.family == ModelFamily.POCKET && spec.remoteFiles.isNotEmpty()) {
+        NativePocketTts(
+            modelsDir = modelDir.absolutePath,
+            voicesDir = modelDir.absolutePath,
+            precision = "int8",
+            temperature = 0.7f,
+            lsdSteps = 1,
+            threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
+        )
+    } else null
+    private val tts: OfflineTts? = if (nativePocket == null) OfflineTts(config = createConfig()) else null
 
-    fun sampleRate(): Int = tts.sampleRate()
+    fun sampleRate(): Int = nativePocket?.let { 24_000 } ?: checkNotNull(tts).sampleRate()
 
     fun generate(text: String, speakerId: Int = 0, speed: Float = 1f): FloatArray {
         if (spec.referenceAudioRequired) {
@@ -35,7 +46,24 @@ class SherpaTtsEngine(
         if (spec.referenceTextRequired) {
             check(!referenceText.isNullOrBlank()) { "Escribe la transcripción exacta del audio de referencia" }
         }
-        return tts.generateWithConfig(text, GenerationConfig(
+        if (nativePocket != null) {
+            check(referenceAudioPath.isNotBlank()) { "Selecciona un audio de referencia para esta voz" }
+            val samples = ArrayList<Float>()
+            val completed = nativePocket.synthesize(
+                text,
+                referenceAudioPath,
+                object : NativePocketTts.AudioSink {
+                    override fun onAudio(chunk: FloatArray): Boolean {
+                        samples.ensureCapacity(samples.size + chunk.size)
+                        for (sample in chunk) samples.add(sample)
+                        return true
+                    }
+                },
+            )
+            check(completed && samples.isNotEmpty()) { "PocketTTS no generó audio" }
+            return samples.toFloatArray()
+        }
+        return checkNotNull(tts).generateWithConfig(text, GenerationConfig(
             sid = speakerId,
             speed = speed.coerceIn(0.5f, 2.5f),
             referenceAudio = referenceAudio,
@@ -51,7 +79,10 @@ class SherpaTtsEngine(
         )).samples
     }
 
-    override fun close() { tts.release() }
+    override fun close() {
+        nativePocket?.close()
+        tts?.release()
+    }
 
     private fun createConfig(): OfflineTtsConfig {
         val dataDir = spec.dataDir.takeIf { it.isNotBlank() }?.let { File(modelDir, it).absolutePath }.orEmpty()

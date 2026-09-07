@@ -8,15 +8,82 @@ import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
+import java.util.prefs.Preferences
+import com.audiobookreader.data.LanguageCodes
+import com.audiobookreader.data.ModelFamily
 
 /** Downloads and installs model archives outside the application package. */
 class DesktopModelRepository {
     private val root = modelStorageDirectory()
+    private val metadata = Preferences.userRoot().node("com.audiobookreader.models")
 
     fun directory(spec: TtsModelSpec): File = File(root, spec.storageId)
 
     // Use the same writable location as models, including installed /opt builds.
     fun audioCache(): DesktopAudioCache = DesktopAudioCache(File(root.parentFile, "audio-cache"))
+
+    fun importedModels(): List<TtsModelSpec> = runCatching {
+        metadata.keys().mapNotNull { key ->
+            val directory = File(root, key)
+            val modelName = metadata.get("$key.model", "")
+            if (!directory.isDirectory || modelName.isBlank()) return@mapNotNull null
+            TtsModelSpec(
+                id = key,
+                name = metadata.get("$key.name", "Imported ONNX · $modelName"),
+                family = ModelFamily.PIPER,
+                language = metadata.get("$key.language", "all"),
+                archiveName = "",
+                modelName = modelName,
+                requiredFiles = listOf("tokens.txt"),
+                storageId = key,
+            ).takeIf(::isInstalled)
+        }
+    }.getOrDefault(emptyList())
+
+    fun importModel(files: List<File>, languageCode: String): TtsModelSpec {
+        val model = files.firstOrNull { it.extension.equals("onnx", ignoreCase = true) }
+            ?: error("Select at least one .onnx file")
+        check(files.any { it.name.equals("tokens.txt", ignoreCase = true) }) {
+            "Select tokens.txt as well"
+        }
+        val language = LanguageCodes.normalizeImportCode(languageCode)
+        val id = "local-${UUID.randomUUID()}"
+        val staging = File(root, "$id.installing")
+        val target = File(root, id)
+        staging.deleteRecursively()
+        staging.mkdirs()
+        try {
+            files.distinctBy { it.name.lowercase() }.forEach { source ->
+                check(source.isFile) { "Not a file: ${source.name}" }
+                val safeName = source.name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                source.copyTo(File(staging, safeName), overwrite = true)
+            }
+            val modelName = model.name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            check(File(staging, modelName).isFile) { "Could not import the ONNX model" }
+            check(File(staging, "tokens.txt").isFile) { "Could not import tokens.txt" }
+            File(staging, INSTALL_MARKER).writeText(id)
+            check(staging.renameTo(target)) { "Could not activate the imported model" }
+            val spec = TtsModelSpec(
+                id = id,
+                name = "Imported ONNX · ${model.name.substringBeforeLast('.')}",
+                family = ModelFamily.PIPER,
+                language = language,
+                archiveName = "",
+                modelName = modelName,
+                requiredFiles = listOf("tokens.txt"),
+                storageId = id,
+            )
+            metadata.put("$id.name", spec.name)
+            metadata.put("$id.language", spec.language)
+            metadata.put("$id.model", spec.modelName)
+            metadata.flush()
+            check(isInstalled(spec)) { "The ONNX model was not installed correctly" }
+            return spec
+        } finally {
+            staging.deleteRecursively()
+        }
+    }
 
     fun isInstalled(spec: TtsModelSpec): Boolean = File(root, spec.storageId).let { directory ->
         File(directory, INSTALL_MARKER).isFile && modelFile(directory, spec) != null &&
@@ -25,6 +92,10 @@ class DesktopModelRepository {
     }
 
     suspend fun download(spec: TtsModelSpec, progress: (Int) -> Unit) = withContext(Dispatchers.IO) {
+        if (spec.remoteFiles.isNotEmpty()) {
+            downloadRemoteFiles(spec, progress)
+            return@withContext
+        }
         check(spec.archiveName.isNotBlank()) { "This voice is online and does not have a downloadable package" }
         val target = File(root, spec.storageId)
         val installing = File(root, "${spec.storageId}.installing")
@@ -76,7 +147,9 @@ class DesktopModelRepository {
             if (spec.auxiliaryUrl.isNotBlank() && spec.auxiliaryName.isNotBlank()) {
                 val auxiliary = File(installing, spec.auxiliaryName)
                 val temporary = File(installing, ".${spec.auxiliaryName}.part")
-                downloadAuxiliary(spec.auxiliaryUrl, temporary, progress)
+                downloadAuxiliary(spec.auxiliaryUrl, temporary) { auxiliaryProgress ->
+                    progress((90 + auxiliaryProgress * 9 / 100).coerceIn(90, 99))
+                }
                 check(temporary.renameTo(auxiliary)) { "Could not install the auxiliary model file" }
             }
             check(spec.requiredFiles.all { required -> installing.walkTopDown().any { it.isFile && it.name == required } }) {
@@ -88,6 +161,44 @@ class DesktopModelRepository {
         } finally {
             connection.disconnect()
             archive.delete()
+            installing.deleteRecursively()
+        }
+    }
+
+    private fun downloadRemoteFiles(spec: TtsModelSpec, progress: (Int) -> Unit) {
+        val target = File(root, spec.storageId)
+        val installing = File(root, "${spec.storageId}.installing")
+        installing.deleteRecursively()
+        installing.mkdirs()
+        try {
+            spec.remoteFiles.forEachIndexed { index, remote ->
+                check(remote.fileName == File(remote.fileName).name && remote.fileName.isNotBlank()) {
+                    "Invalid remote model file name"
+                }
+                val temporary = File(installing, ".${remote.fileName}.part")
+                val destination = File(installing, remote.fileName)
+                downloadAuxiliary(remote.url, temporary) { fileProgress ->
+                    val start = index * 90 / spec.remoteFiles.size
+                    val span = 90 / spec.remoteFiles.size
+                    val withinFile = fileProgress * span / 100
+                    progress((start + withinFile).coerceIn(0, 95))
+                }
+                check(temporary.renameTo(destination)) { "Could not install ${remote.fileName}" }
+            }
+            check(spec.requiredFiles.all { required ->
+                File(installing, required).isFile && File(installing, required).length() > 0
+            }) { "The downloaded model is incomplete" }
+            File(installing, INSTALL_MARKER).writeText(spec.storageId)
+            val backup = File(root, "${spec.storageId}.backup")
+            backup.deleteRecursively()
+            if (target.exists()) check(target.renameTo(backup)) { "Could not reserve the previous model" }
+            if (!installing.renameTo(target)) {
+                backup.renameTo(target)
+                error("Could not activate the downloaded model")
+            }
+            backup.deleteRecursively()
+            progress(100)
+        } finally {
             installing.deleteRecursively()
         }
     }
@@ -119,7 +230,7 @@ class DesktopModelRepository {
                     if (read == 0) continue
                     output.write(buffer, 0, read)
                     copied += read
-                    if (total > 0) progress((90 + copied * 9 / total).toInt().coerceIn(90, 99))
+                    if (total > 0) progress((copied * 100 / total).toInt().coerceIn(0, 100))
                 }
             } }
             check(target.length() > 0L) { "The auxiliary download was empty" }

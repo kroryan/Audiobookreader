@@ -17,4 +17,11 @@ object SpeechText {
     fun forEdgeTts(text: String): String = text
         .replace(Regex("\\.{3,}"), "…")
         .replace(Regex("\\n{2,}"), "\n\n")
+
+    fun forSupertonicTts(text: String): String = text
+        .replace('\r', '\n')
+        .replace(Regex("[\\n\\t ]+"), " ")
+        .replace(Regex("\\s*([–‑—])\\s*"), " - ")
+        .replace(Regex("\\s+([,.;:!?])"), "$1")
+        .trim()
 }

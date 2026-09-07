@@ -46,6 +46,7 @@ class ModelCatalogTest {
 
     @Test
     fun kokoroPackageIsAvailableForEveryLanguageFilter() {
+        assertEquals(1, ModelCatalog.models.count { it.family == ModelFamily.KOKORO })
         val packageSpec = ModelCatalog.models.first { it.id == "kokoro-multi-v1-0" }
         assertEquals("all", packageSpec.language)
         assertTrue(packageSpec.archiveName.endsWith("kokoro-multi-lang-v1_0-em-santa.tar.bz2"))

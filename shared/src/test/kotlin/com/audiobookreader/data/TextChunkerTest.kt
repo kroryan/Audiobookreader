@@ -43,4 +43,14 @@ class TextChunkerTest {
         assertFalse(speech.contains("..."))
         assertFalse(speech.contains("\n\n"))
     }
+
+    @Test
+    fun keepsSupertonicInputCompatibleWithItsOwnTextProcessor() {
+        val speech = SpeechText.forSupertonicTts("Espera... — dijo ella.\n\nLuego continuó.")
+
+        assertTrue(speech.contains("..."))
+        assertTrue(speech.contains("- dijo"))
+        assertFalse(speech.contains("—"))
+        assertFalse(speech.contains("\n"))
+    }
 }

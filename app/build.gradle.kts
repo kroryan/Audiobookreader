@@ -6,7 +6,7 @@ plugins {
 }
 
 val signingProperties = Properties()
-val signingPropertiesFile = rootProject.file("keystore.properties")
+val signingPropertiesFile = rootProject.file("signing/keystore.properties")
 if (signingPropertiesFile.exists()) {
     signingPropertiesFile.inputStream().use(signingProperties::load)
 }
@@ -19,8 +19,11 @@ android {
         applicationId = "com.audiobookreader"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.1.14"
+        versionCode = 16
+        versionName = "0.1.15"
+        externalNativeBuild {
+            cmake { cppFlags += listOf("-std=c++17", "-O3") }
+        }
     }
 
     signingConfigs {
@@ -55,6 +58,12 @@ android {
     kotlinOptions { jvmTarget = "1.8" }
     buildFeatures { compose = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.1" }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
