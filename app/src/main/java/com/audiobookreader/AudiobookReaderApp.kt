@@ -2,6 +2,7 @@ package com.audiobookreader
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -64,6 +65,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.audiobookreader.data.Book
 import com.audiobookreader.data.AppLanguage
 import com.audiobookreader.data.ModelFamily
+import com.audiobookreader.data.ModelCatalog
 import com.audiobookreader.data.TextChunker
 import com.audiobookreader.data.TtsModelSpec
 import kotlinx.coroutines.launch
@@ -263,6 +265,9 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
                             onClick = { speakerText.toIntOrNull()?.let(viewModel::setBookSpeakerId) },
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text(strings.applyVoiceSettings) }
+                        if (state.selectedModel.family == ModelFamily.KOKORO) {
+                            KokoroVoicePicker(state, viewModel, strings)
+                        }
                     }
                 }
             }
@@ -441,6 +446,9 @@ private fun ModelCard(
         Column(Modifier.padding(14.dp)) {
             Text(spec.name, style = MaterialTheme.typography.titleMedium)
             Text("${if (spec.family == ModelFamily.EDGE) "Edge TTS" else if (spec.archiveName.isBlank()) strings.imported else spec.family.label()} · ${strings.languageLabel(spec.language)}")
+            if (spec.id == "kokoro-multi-v1-0" || spec.id == "kokoro-int8-multi-v1-0") {
+                Text("53 voices · English, Spanish, French, Hindi, Italian, Japanese, Portuguese and Chinese")
+            }
             if (spec.experimental) Text(strings.experimental)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 if (state.selectedModel.id == spec.id) Text("${strings.selected}  ")
@@ -459,6 +467,44 @@ private fun ModelCard(
 }
 
 @Composable
+private fun KokoroVoicePicker(state: ReaderState, viewModel: ReaderViewModel, strings: UiStrings) {
+    var expanded by remember { mutableStateOf(false) }
+    val voices = ModelCatalog.kokoroVoices
+    val selected = voices.firstOrNull { it.speakerId == state.bookTtsSettings.speakerId }
+    Text("Kokoro voice", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Box {
+        Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(selected?.let { "${strings.languageLabel(it.language)} · ${it.id}" } ?: "Speaker ${state.bookTtsSettings.speakerId}", maxLines = 1)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            voices.groupBy { it.language }.forEach { (language, group) ->
+                DropdownMenuItem(
+                    text = { Text(strings.languageLabel(language), fontWeight = FontWeight.Bold) },
+                    onClick = {},
+                    enabled = false,
+                )
+                group.forEach { voice ->
+                    DropdownMenuItem(
+                        text = { Text(voice.id) },
+                        onClick = {
+                            viewModel.setBookSpeakerId(voice.speakerId)
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+    if (state.selectedModel.id == "kokoro-multi-v1-0" || state.selectedModel.id == "kokoro-int8-multi-v1-0") {
+        Text(
+            "The official sherpa-onnx v1.0 voices.bin contains 53 verified voices. em_santa is not part of that published bundle, so it is not presented as a working voice.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
 private fun SettingsScreen(
     state: ReaderState,
     viewModel: ReaderViewModel,
@@ -466,8 +512,16 @@ private fun SettingsScreen(
     onRequestBatteryOptimization: () -> Unit,
 ) {
     var modelLanguage by rememberSaveable { mutableStateOf("") }
+    var pendingModelUris by remember { mutableStateOf<List<Uri>?>(null) }
     val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        viewModel.importCustomModel(uris, modelLanguage)
+        if (uris.isNotEmpty()) pendingModelUris = uris
+    }
+    val espeakPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+        val modelUris = pendingModelUris
+        if (treeUri != null && modelUris != null) {
+            pendingModelUris = null
+            viewModel.importCustomModel(modelUris, modelLanguage, treeUri)
+        }
     }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
@@ -507,6 +561,31 @@ private fun SettingsScreen(
                 Text(strings.importModel)
             }
         }
+    }
+    if (pendingModelUris != null) {
+        AlertDialog(
+            onDismissRequest = { pendingModelUris = null },
+            title = { Text(if (state.appLanguage == AppLanguage.SPANISH) "Selecciona espeak-ng-data" else "Select espeak-ng-data") },
+            text = {
+                Text(
+                    if (state.appLanguage == AppLanguage.SPANISH) {
+                        "Piper necesita esta carpeta para convertir el texto en fonemas. Selecciona la carpeta espeak-ng-data del paquete del modelo."
+                    } else {
+                        "Piper needs this folder to convert text to phonemes. Select the model package's espeak-ng-data folder."
+                    }
+                )
+            },
+            confirmButton = {
+                Button(onClick = { espeakPicker.launch(null) }) {
+                    Text(if (state.appLanguage == AppLanguage.SPANISH) "Elegir carpeta" else "Choose folder")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingModelUris = null }) {
+                    Text(if (state.appLanguage == AppLanguage.SPANISH) "Cancelar" else "Cancel")
+                }
+            },
+        )
     }
 }
 

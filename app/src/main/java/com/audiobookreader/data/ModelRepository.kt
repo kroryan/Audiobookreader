@@ -3,6 +3,7 @@ package com.audiobookreader.data
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.provider.DocumentsContract
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -54,11 +55,12 @@ class ModelRepository(context: Context) {
                 language = LanguageCodes.normalize(item.optString("language", "all")),
                 archiveName = "",
                 modelName = item.optString("modelName"),
+                dataDir = item.optString("dataDir", ""),
             ).takeIf { it.id.isNotBlank() && it.modelName.isNotBlank() && isInstalled(it) && File(rootDir(it), "tokens.txt").isFile }
         }
     }.getOrDefault(emptyList())
 
-    fun importOnnx(uris: List<Uri>, language: String): TtsModelSpec {
+    fun importOnnx(uris: List<Uri>, language: String, espeakDataTree: Uri): TtsModelSpec {
         val names = uris.map { displayName(it) to it }
         val model = names.firstOrNull { it.first.lowercase().endsWith(".onnx") }
             ?: error("Selecciona al menos un archivo .onnx")
@@ -75,6 +77,11 @@ class ModelRepository(context: Context) {
                     File(directory, safeName).outputStream().use { output -> input.copyTo(output) }
                 }
             }
+            val espeakDirectory = File(directory, "espeak-ng-data").also { it.mkdirs() }
+            copyDocumentTree(espeakDataTree, espeakDirectory)
+            check(File(espeakDirectory, "phontab").isFile) {
+                "La carpeta seleccionada no parece ser espeak-ng-data (falta phontab)"
+            }
         } catch (error: Throwable) {
             directory.deleteRecursively()
             throw error
@@ -87,6 +94,7 @@ class ModelRepository(context: Context) {
             language = LanguageCodes.normalize(language.ifBlank { "all" }),
             archiveName = "",
             modelName = modelName,
+            dataDir = "espeak-ng-data",
         )
         File(directory, INSTALL_MARKER).writeText(spec.id)
         val saved = JSONArray(metadata.getString(KEY_IMPORTED_MODELS, "[]"))
@@ -95,6 +103,7 @@ class ModelRepository(context: Context) {
             put("name", spec.name)
             put("language", spec.language)
             put("modelName", spec.modelName)
+            put("dataDir", spec.dataDir)
         })
         metadata.edit().putString(KEY_IMPORTED_MODELS, saved.toString()).apply()
         check(isInstalled(spec)) { "El modelo ONNX no quedó instalado" }
@@ -105,6 +114,48 @@ class ModelRepository(context: Context) {
         val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         if (cursor.moveToFirst() && index >= 0) cursor.getString(index) else null
     } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "modelo.onnx"
+
+    private fun copyDocumentTree(treeUri: Uri, target: File) {
+        val rootDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
+        copyDocumentDirectory(
+            DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, rootDocumentId),
+            treeUri,
+            target,
+        )
+    }
+
+    private fun copyDocumentDirectory(childrenUri: Uri, treeUri: Uri, target: File) {
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+        )
+        appContext.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val mimeColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            while (cursor.moveToNext()) {
+                val documentId = cursor.getString(idColumn)
+                val name = cursor.getString(nameColumn).replace(Regex("[^A-Za-z0-9._-]"), "_")
+                if (name.isBlank()) continue
+                val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+                val output = File(target, name)
+                if (cursor.getString(mimeColumn) == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    output.mkdirs()
+                    copyDocumentDirectory(
+                        DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId),
+                        treeUri,
+                        output,
+                    )
+                } else {
+                    appContext.contentResolver.openInputStream(documentUri).use { input ->
+                        checkNotNull(input) { "No se pudo leer el archivo de espeak-ng-data: $name" }
+                        output.outputStream().use { outputStream -> input.copyTo(outputStream) }
+                    }
+                }
+            }
+        } ?: error("No se pudo leer la carpeta espeak-ng-data")
+    }
 
     suspend fun download(spec: TtsModelSpec, progress: (Int) -> Unit) = withContext(Dispatchers.IO) {
         val target = rootDir(spec)

@@ -70,10 +70,10 @@ The list was cross-checked against `scripts/apk/generate-tts-apk-script.py` from
 
 - Piper/VITS: Sherpa-ONNX's catalog for dozens of languages, including Miro, Davefx, and Sharvard for `es_ES`.
 - Coqui VITS and Mimic3 VITS: Sherpa-ONNX packages that the `OfflineTts` engine can run internally.
-- Kokoro: v0.19 English and v1.0/v1.1 English+Chinese, including the INT8 variant.
+- Kokoro: v0.19 English and the v1.0 multilingual package, including its 53 verified voice embeddings and INT8 variant. The Android adapter passes the selected Kokoro language to Sherpa-ONNX instead of relying on the default language.
 - Supertonic 3 INT8: Spanish and other languages in a multilingual package.
 
-Kokoro Spanish requires separate validation: the original Kokoro-82M voice catalog includes Spanish (`ef_dora`, `em_alex`, `em_santa`), but the official packages currently documented by Sherpa-ONNX as `kokoro-multi-lang-v1_0/v1_1` are published and configured for English and Chinese. Spanish voices on the device still need a compatible conversion and frontend/phonemizer validation; they should not be presented as finished support until correct audio is confirmed on an ARM phone.
+The official Sherpa-ONNX v1.0 voice bundle contains `ef_dora` and `em_alex` at speaker IDs 28 and 29. The upstream Kokoro catalogue also lists `em_santa`, but that embedding is not present in Sherpa-ONNX's published v1.0 `voices.bin`; BookReader therefore does not expose it as a working voice. This avoids presenting a speaker ID that would read past the downloaded voice bundle. The Sherpa package still needs device validation for every non-English language, and the app keeps Piper/Supertonic Spanish models available as fallbacks.
 
 ## Technical references
 

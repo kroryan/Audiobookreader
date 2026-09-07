@@ -25,6 +25,12 @@ data class TtsModelSpec(
     val requiresAcceptance: Boolean = false,
 )
 
+data class KokoroVoice(
+    val id: String,
+    val speakerId: Int,
+    val language: String,
+)
+
 object ModelCatalog {
     private const val base = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
 
@@ -286,11 +292,38 @@ vits-piper-zh_CN-chaowen-medium
         coquiDirs.map { vitsModel(it, ModelFamily.COQUI) } +
         mimic3Dirs.map { vitsModel(it, ModelFamily.MIMIC3) } + listOf(
             TtsModelSpec("kokoro-en", "Kokoro v0.19 · English", ModelFamily.KOKORO, "en", "${base}kokoro-en-v0_19.tar.bz2", "model.onnx", voices = "voices.bin", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
-            TtsModelSpec("kokoro-multi-v1-0", "Kokoro v1.0 · English + Chinese", ModelFamily.KOKORO, "en", "${base}kokoro-multi-lang-v1_0.tar.bz2", "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
-            TtsModelSpec("kokoro-multi", "Kokoro v1.1 · English + Chinese", ModelFamily.KOKORO, "en", "${base}kokoro-multi-lang-v1_1.tar.bz2", "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
-            TtsModelSpec("kokoro-multi-int8", "Kokoro v1.1 INT8 · English + Chinese", ModelFamily.KOKORO, "en", "${base}kokoro-int8-multi-lang-v1_1.tar.bz2", "model.int8.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
+            // The official v1.0 sherpa package contains the complete 53-voice
+            // bundle used below. It is the Android default because fp32 is
+            // currently more reliable than the int8 ARM package.
+            TtsModelSpec("kokoro-multi-v1-0", "Kokoro v1.0 · 9 languages · 53 voices", ModelFamily.KOKORO, "all", "${base}kokoro-multi-lang-v1_0.tar.bz2", "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
+            TtsModelSpec("kokoro-int8-multi-v1-0", "Kokoro v1.0 INT8 · 9 languages · 53 voices", ModelFamily.KOKORO, "all", "${base}kokoro-int8-multi-lang-v1_0.tar.bz2", "model.int8.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", experimental = true, licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
             TtsModelSpec("supertonic-es", "Supertonic 3 INT8 · Spanish", ModelFamily.SUPERTONIC, "es", "${base}sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2", "", experimental = false, licenseSpdx = "OpenRAIL-M", licenseUrl = "https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE", attribution = "Supertone Inc.", requiresAcceptance = true),
         )
+
+    /** Speaker IDs are the order used by sherpa-onnx's official v1.0 voices.bin. */
+    val kokoroVoices: List<KokoroVoice> = listOf(
+        "af_alloy" to "en", "af_aoede" to "en", "af_bella" to "en", "af_heart" to "en", "af_jessica" to "en", "af_kore" to "en", "af_nicole" to "en", "af_nova" to "en", "af_river" to "en", "af_sarah" to "en", "af_sky" to "en",
+        "am_adam" to "en", "am_echo" to "en", "am_eric" to "en", "am_fenrir" to "en", "am_liam" to "en", "am_michael" to "en", "am_onyx" to "en", "am_puck" to "en", "am_santa" to "en",
+        "bf_alice" to "en", "bf_emma" to "en", "bf_isabella" to "en", "bf_lily" to "en", "bm_daniel" to "en", "bm_fable" to "en", "bm_george" to "en", "bm_lewis" to "en",
+        "ef_dora" to "es", "em_alex" to "es",
+        "ff_siwis" to "fr", "hf_alpha" to "hi", "hf_beta" to "hi", "hm_omega" to "hi", "hm_psi" to "hi",
+        "if_sara" to "it", "im_nicola" to "it",
+        "jf_alpha" to "ja", "jf_gongitsune" to "ja", "jf_nezumi" to "ja", "jf_tebukuro" to "ja", "jm_kumo" to "ja",
+        "pf_dora" to "pt", "pm_alex" to "pt", "pm_santa" to "pt",
+        "zf_xiaobei" to "zh", "zf_xiaoni" to "zh", "zf_xiaoxiao" to "zh", "zf_xiaoyi" to "zh", "zm_yunjian" to "zh", "zm_yunxi" to "zh", "zm_yunxia" to "zh", "zm_yunyang" to "zh",
+    ).mapIndexed { index, (id, language) -> KokoroVoice(id, index, language) }
+
+    fun kokoroLanguage(speakerId: Int): String = when (kokoroVoices.firstOrNull { it.speakerId == speakerId }?.language) {
+        "en" -> if (speakerId in 20..27) "en-gb" else "en-us"
+        "es" -> "es"
+        "fr" -> "fr-fr"
+        "hi" -> "hi"
+        "it" -> "it"
+        "ja" -> "ja"
+        "pt" -> "pt-br"
+        "zh" -> "zh"
+        else -> "en-us"
+    }
 
     val languages: List<String> = models.map { it.language }.distinct().sorted()
 

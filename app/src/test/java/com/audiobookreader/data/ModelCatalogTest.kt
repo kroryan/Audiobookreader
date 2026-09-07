@@ -27,4 +27,25 @@ class ModelCatalogTest {
             assertEquals("espeak-ng-data", model.dataDir)
         }
     }
+
+    @Test
+    fun kokoroV10ExposesTheOfficialVoiceOrderAndSpanishLanguageCodes() {
+        val voices = ModelCatalog.kokoroVoices
+
+        assertEquals(53, voices.size)
+        assertEquals("ef_dora", voices.first { it.language == "es" }.id)
+        assertEquals(listOf("ef_dora", "em_alex"), voices.filter { it.language == "es" }.map { it.id })
+        assertEquals("es", ModelCatalog.kokoroVoices[28].language)
+        assertEquals("es", ModelCatalog.kokoroVoices[29].language)
+        assertEquals("es", ModelCatalog.kokoroLanguage(28).take(2))
+        assertEquals("es", ModelCatalog.kokoroLanguage(29))
+    }
+
+    @Test
+    fun kokoroPackageIsAvailableForEveryLanguageFilter() {
+        val packageSpec = ModelCatalog.models.first { it.id == "kokoro-multi-v1-0" }
+        assertEquals("all", packageSpec.language)
+        assertTrue(packageSpec.archiveName.endsWith("kokoro-multi-lang-v1_0.tar.bz2"))
+        assertEquals("Apache-2.0", packageSpec.licenseSpdx)
+    }
 }
