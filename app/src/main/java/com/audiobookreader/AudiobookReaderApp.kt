@@ -452,7 +452,7 @@ private fun ModelCard(
             Text(spec.name, style = MaterialTheme.typography.titleMedium)
             Text("${if (spec.family == ModelFamily.EDGE) "Edge TTS" else if (spec.archiveName.isBlank()) strings.imported else spec.family.label()} · ${strings.languageLabel(spec.language)}")
             if (spec.id == "kokoro-multi-v1-0") {
-                Text("One download · 53 verified voices · English, Spanish, French, Hindi, Italian, Japanese, Portuguese and Chinese")
+                Text("One download · 54 verified voices · English, Spanish, French, Hindi, Italian, Japanese, Portuguese and Chinese")
             }
             if (spec.experimental) Text(strings.experimental)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -505,19 +505,12 @@ private fun KokoroVoicePicker(state: ReaderState, viewModel: ReaderViewModel, st
             }
         }
     }
-    if (state.selectedModel.id == "kokoro-multi-v1-0") {
-        Text(
-            "The official sherpa-onnx v1.0 voices.bin contains 53 verified voices. em_santa is not part of that published bundle, so it is not presented as a working voice.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
 }
 
 private fun kokoroVoiceLabel(voice: com.audiobookreader.data.KokoroVoice, strings: UiStrings): String = when (voice.id) {
     "ef_dora" -> "Dora (ef_dora) · ${strings.languageLabel("es")} · female"
     "em_alex" -> "Alex (em_alex) · ${strings.languageLabel("es")} · male"
-    "em_santa" -> "Santa (em_santa) · ${strings.languageLabel("es")} · male · unavailable"
+    "em_santa" -> "Santa (em_santa) · ${strings.languageLabel("es")} · male"
     else -> "${strings.languageLabel(voice.language)} · ${voice.id}"
 }
 

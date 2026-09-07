@@ -34,6 +34,8 @@ data class KokoroVoice(
 
 object ModelCatalog {
     private const val base = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
+    private const val kokoroSantaArchive =
+        "https://github.com/kroryan/Audiobookreader/releases/download/kokoro-v1.0-54/kokoro-multi-lang-v1_0-em-santa.tar.bz2"
 
     // Sherpa-ONNX's current Android TTS script contains these Piper voices.
     // Only the small catalog entries are bundled; the archives remain remote.
@@ -292,10 +294,9 @@ vits-piper-zh_CN-chaowen-medium
     val models: List<TtsModelSpec> = piperDirs.map(::piper) +
         coquiDirs.map { vitsModel(it, ModelFamily.COQUI) } +
         mimic3Dirs.map { vitsModel(it, ModelFamily.MIMIC3) } + listOf(
-            // The official v1.0 sherpa package contains the complete 53-voice
-            // bundle used below. It is the only Kokoro download exposed here:
-            // every voice reuses this same model and voices.bin.
-            TtsModelSpec("kokoro-multi-v1-0", "Kokoro v1.0 · 9 languages · 53 voices", ModelFamily.KOKORO, "all", "${base}kokoro-multi-lang-v1_0.tar.bz2", "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
+            // One shared package is used by all Kokoro voices. This package
+            // includes the additional Spanish em_santa embedding.
+            TtsModelSpec("kokoro-multi-v1-0", "Kokoro v1.0 · 9 languages · 54 voices", ModelFamily.KOKORO, "all", kokoroSantaArchive, "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
             TtsModelSpec("supertonic-es", "Supertonic 3 INT8 · Spanish", ModelFamily.SUPERTONIC, "es", "${base}sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2", "", experimental = false, licenseSpdx = "OpenRAIL-M", licenseUrl = "https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE", attribution = "Supertone Inc.", requiresAcceptance = true),
         )
 
@@ -310,12 +311,8 @@ vits-piper-zh_CN-chaowen-medium
         "jf_alpha" to "ja", "jf_gongitsune" to "ja", "jf_nezumi" to "ja", "jf_tebukuro" to "ja", "jm_kumo" to "ja",
         "pf_dora" to "pt", "pm_alex" to "pt", "pm_santa" to "pt",
         "zf_xiaobei" to "zh", "zf_xiaoni" to "zh", "zf_xiaoxiao" to "zh", "zf_xiaoyi" to "zh", "zm_yunjian" to "zh", "zm_yunxi" to "zh", "zm_yunxia" to "zh", "zm_yunyang" to "zh",
-    ).mapIndexed { index, (id, language) -> KokoroVoice(id, index, language) } +
-        // The upstream Kokoro catalogue contains this voice, but Sherpa's
-        // published v1.0 voices.bin has no corresponding embedding. Keep it
-        // visible and explicitly unavailable instead of mapping it to another
-        // speaker ID and silently producing the wrong voice.
-        KokoroVoice("em_santa", -1, "es", available = false)
+        "em_santa" to "es",
+    ).mapIndexed { index, (id, language) -> KokoroVoice(id, index, language) }
 
     fun kokoroLanguage(speakerId: Int): String = when (kokoroVoices.firstOrNull { it.speakerId == speakerId }?.language) {
         "en" -> if (speakerId in 20..27) "en-gb" else "en-us"

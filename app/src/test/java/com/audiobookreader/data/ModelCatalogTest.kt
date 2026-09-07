@@ -37,16 +37,18 @@ class ModelCatalogTest {
         assertEquals(listOf("ef_dora", "em_alex", "em_santa"), voices.filter { it.language == "es" }.map { it.id })
         assertEquals("es", ModelCatalog.kokoroVoices[28].language)
         assertEquals("es", ModelCatalog.kokoroVoices[29].language)
-        assertEquals(false, ModelCatalog.kokoroVoices[53].available)
+        assertEquals(53, ModelCatalog.kokoroVoices[53].speakerId)
+        assertEquals(true, ModelCatalog.kokoroVoices[53].available)
         assertEquals("es", ModelCatalog.kokoroLanguage(28).take(2))
         assertEquals("es", ModelCatalog.kokoroLanguage(29))
+        assertEquals("es", ModelCatalog.kokoroLanguage(53))
     }
 
     @Test
     fun kokoroPackageIsAvailableForEveryLanguageFilter() {
         val packageSpec = ModelCatalog.models.first { it.id == "kokoro-multi-v1-0" }
         assertEquals("all", packageSpec.language)
-        assertTrue(packageSpec.archiveName.endsWith("kokoro-multi-lang-v1_0.tar.bz2"))
+        assertTrue(packageSpec.archiveName.endsWith("kokoro-multi-lang-v1_0-em-santa.tar.bz2"))
         assertEquals("Apache-2.0", packageSpec.licenseSpdx)
     }
 }

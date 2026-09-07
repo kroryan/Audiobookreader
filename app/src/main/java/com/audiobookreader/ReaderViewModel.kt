@@ -137,7 +137,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                 job?.cancel()
                 PlaybackService.stop(appContext)
             }
-            val maxSpeakerId = if (spec.family == ModelFamily.KOKORO) 52 else 31
+            val maxSpeakerId = if (spec.family == ModelFamily.KOKORO) 53 else 31
             val updated = current.bookTtsSettings.copy(
                 modelId = spec.id,
                 speakerId = current.bookTtsSettings.speakerId.coerceIn(0, maxSpeakerId),
@@ -168,7 +168,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     fun setBookSpeakerId(speakerId: Int) {
         val current = _state.value
         val book = current.selectedBook ?: return
-        val maxSpeakerId = if (current.selectedModel.family == ModelFamily.KOKORO) 52 else 31
+        val maxSpeakerId = if (current.selectedModel.family == ModelFamily.KOKORO) 53 else 31
         val updated = current.bookTtsSettings.copy(speakerId = speakerId.coerceIn(0, maxSpeakerId))
         if (updated.speakerId == current.bookTtsSettings.speakerId) return
         saveBookTtsSettings(book.id, updated)
@@ -629,7 +629,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
             ?: settings.getString(KEY_SELECTED_MODEL, null)
             ?: allModels.first().id
         val model = allModels.firstOrNull { it.id == modelId }
-        val maxSpeakerId = if (model?.family == ModelFamily.KOKORO) 52 else 31
+        val maxSpeakerId = if (model?.family == ModelFamily.KOKORO) 53 else 31
         return BookTtsSettings(
             modelId = modelId,
             speed = settings.getFloat("book.$bookId.speed", 1f).coerceIn(0.5f, 2.5f),

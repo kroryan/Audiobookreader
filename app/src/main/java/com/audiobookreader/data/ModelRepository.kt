@@ -45,7 +45,16 @@ class ModelRepository(context: Context) {
         // The marker is written only after the archive has been fully extracted
         // and the expected model file has been found. Keep the model-file
         // fallback so installations made by older app versions remain usable.
-        return (marker.isFile && marker.readText() == spec.id) || modelFile(spec) != null
+        val installed = (marker.isFile && marker.readText() == spec.id) || modelFile(spec) != null
+        if (!installed) return false
+        if (spec.family == ModelFamily.KOKORO) {
+            // A previous app version installed the 53-speaker package under
+            // the same model ID. Do not report it as installed: the new
+            // package must contain the 54th embedding for em_santa.
+            val voices = File(rootDir, spec.voices)
+            if (voices.length() != KOKORO_VOICE_BYTES * KOKORO_VOICE_COUNT) return false
+        }
+        return true
     }
 
     fun importedModels(): List<TtsModelSpec> = runCatching {
@@ -178,19 +187,21 @@ class ModelRepository(context: Context) {
         try {
             check(connection.responseCode in 200..299) { "Descarga fallida: HTTP ${connection.responseCode}" }
             val total = connection.contentLengthLong
-            connection.inputStream.use { rawInput -> BufferedInputStream(rawInput, IO_BUFFER_SIZE).use { input ->
-                BufferedOutputStream(archive.outputStream(), IO_BUFFER_SIZE).use { output ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                var copied = 0L
-                var read: Int
-                while (input.read(buffer).also { read = it } >= 0) {
-                    if (read == 0) continue
-                    output.write(buffer, 0, read)
-                    copied += read
-                    if (total > 0) progress((copied * 60 / total).toInt().coerceIn(0, 60))
+            connection.inputStream.use { rawInput ->
+                BufferedInputStream(rawInput, IO_BUFFER_SIZE).use { input ->
+                    BufferedOutputStream(archive.outputStream(), IO_BUFFER_SIZE).use { output ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var copied = 0L
+                        var read: Int
+                        while (input.read(buffer).also { read = it } >= 0) {
+                            if (read == 0) continue
+                            output.write(buffer, 0, read)
+                            copied += read
+                            if (total > 0) progress((copied * 60 / total).toInt().coerceIn(0, 60))
+                        }
+                    }
                 }
-                }
-            } }
+            }
             check(archive.length() > 0L) { "La descarga terminó sin datos" }
         } finally {
             connection.disconnect()
@@ -213,16 +224,21 @@ class ModelRepository(context: Context) {
                         val relative = entryName.substringAfter('/', entryName)
                         if (relative.isNotBlank()) {
                             val output = File(installing, relative)
-                            check(output.canonicalPath.startsWith(installing.canonicalPath + File.separator)) { "Archivo fuera del modelo" }
-                            if (entry.isDirectory) output.mkdirs() else {
+                            check(output.canonicalPath.startsWith(installing.canonicalPath + File.separator)) {
+                                "Archivo fuera del modelo"
+                            }
+                            if (entry.isDirectory) {
+                                output.mkdirs()
+                            } else {
                                 output.parentFile?.mkdirs()
-                                BufferedOutputStream(output.outputStream(), IO_BUFFER_SIZE).use { tar.copyTo(it, IO_BUFFER_SIZE) }
+                                BufferedOutputStream(output.outputStream(), IO_BUFFER_SIZE).use {
+                                    tar.copyTo(it, IO_BUFFER_SIZE)
+                                }
                             }
                         }
                         entry = tar.nextTarEntry
                     }
                 }
-            }
             }
         }
         archive.delete()
@@ -279,5 +295,7 @@ class ModelRepository(context: Context) {
         private const val INSTALL_MARKER = ".bookreader-installed"
         private const val KEY_IMPORTED_MODELS = "imported_models"
         private const val IO_BUFFER_SIZE = 1024 * 1024
+        private const val KOKORO_VOICE_BYTES = 510L * 256L * 4L
+        private const val KOKORO_VOICE_COUNT = 54L
     }
 }
