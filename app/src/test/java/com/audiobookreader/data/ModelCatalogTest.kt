@@ -32,11 +32,12 @@ class ModelCatalogTest {
     fun kokoroV10ExposesTheOfficialVoiceOrderAndSpanishLanguageCodes() {
         val voices = ModelCatalog.kokoroVoices
 
-        assertEquals(53, voices.size)
+        assertEquals(54, voices.size)
         assertEquals("ef_dora", voices.first { it.language == "es" }.id)
-        assertEquals(listOf("ef_dora", "em_alex"), voices.filter { it.language == "es" }.map { it.id })
+        assertEquals(listOf("ef_dora", "em_alex", "em_santa"), voices.filter { it.language == "es" }.map { it.id })
         assertEquals("es", ModelCatalog.kokoroVoices[28].language)
         assertEquals("es", ModelCatalog.kokoroVoices[29].language)
+        assertEquals(false, ModelCatalog.kokoroVoices[53].available)
         assertEquals("es", ModelCatalog.kokoroLanguage(28).take(2))
         assertEquals("es", ModelCatalog.kokoroLanguage(29))
     }

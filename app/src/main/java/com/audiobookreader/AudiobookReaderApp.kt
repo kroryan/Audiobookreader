@@ -446,8 +446,8 @@ private fun ModelCard(
         Column(Modifier.padding(14.dp)) {
             Text(spec.name, style = MaterialTheme.typography.titleMedium)
             Text("${if (spec.family == ModelFamily.EDGE) "Edge TTS" else if (spec.archiveName.isBlank()) strings.imported else spec.family.label()} · ${strings.languageLabel(spec.language)}")
-            if (spec.id == "kokoro-multi-v1-0" || spec.id == "kokoro-int8-multi-v1-0") {
-                Text("53 voices · English, Spanish, French, Hindi, Italian, Japanese, Portuguese and Chinese")
+            if (spec.id == "kokoro-multi-v1-0") {
+                Text("One download · 53 verified voices · English, Spanish, French, Hindi, Italian, Japanese, Portuguese and Chinese")
             }
             if (spec.experimental) Text(strings.experimental)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -470,11 +470,11 @@ private fun ModelCard(
 private fun KokoroVoicePicker(state: ReaderState, viewModel: ReaderViewModel, strings: UiStrings) {
     var expanded by remember { mutableStateOf(false) }
     val voices = ModelCatalog.kokoroVoices
-    val selected = voices.firstOrNull { it.speakerId == state.bookTtsSettings.speakerId }
+    val selected = voices.firstOrNull { it.available && it.speakerId == state.bookTtsSettings.speakerId }
     Text("Kokoro voice", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Box {
         Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(selected?.let { "${strings.languageLabel(it.language)} · ${it.id}" } ?: "Speaker ${state.bookTtsSettings.speakerId}", maxLines = 1)
+            Text(selected?.let { kokoroVoiceLabel(it, strings) } ?: "Speaker ${state.bookTtsSettings.speakerId}", maxLines = 1)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             voices.groupBy { it.language }.forEach { (language, group) ->
@@ -485,23 +485,33 @@ private fun KokoroVoicePicker(state: ReaderState, viewModel: ReaderViewModel, st
                 )
                 group.forEach { voice ->
                     DropdownMenuItem(
-                        text = { Text(voice.id) },
+                        text = { Text(kokoroVoiceLabel(voice, strings)) },
                         onClick = {
-                            viewModel.setBookSpeakerId(voice.speakerId)
-                            expanded = false
+                            if (voice.available) {
+                                viewModel.setBookSpeakerId(voice.speakerId)
+                                expanded = false
+                            }
                         },
+                        enabled = voice.available,
                     )
                 }
             }
         }
     }
-    if (state.selectedModel.id == "kokoro-multi-v1-0" || state.selectedModel.id == "kokoro-int8-multi-v1-0") {
+    if (state.selectedModel.id == "kokoro-multi-v1-0") {
         Text(
             "The official sherpa-onnx v1.0 voices.bin contains 53 verified voices. em_santa is not part of that published bundle, so it is not presented as a working voice.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+private fun kokoroVoiceLabel(voice: com.audiobookreader.data.KokoroVoice, strings: UiStrings): String = when (voice.id) {
+    "ef_dora" -> "Dora (ef_dora) · ${strings.languageLabel("es")} · female"
+    "em_alex" -> "Alex (em_alex) · ${strings.languageLabel("es")} · male"
+    "em_santa" -> "Santa (em_santa) · ${strings.languageLabel("es")} · male · unavailable"
+    else -> "${strings.languageLabel(voice.language)} · ${voice.id}"
 }
 
 @Composable
