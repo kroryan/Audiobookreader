@@ -60,6 +60,8 @@ import com.audiobookreader.data.TextChunker
 import com.audiobookreader.data.TtsModelSpec
 import kotlinx.coroutines.launch
 import java.io.File
+import java.awt.FileDialog
+import java.io.FilenameFilter
 
 fun main() = application {
     Window(onCloseRequest = ::exitApplication, title = "BookReader") {
@@ -93,7 +95,9 @@ private fun DesktopApp() {
     }
 
     LaunchedEffect(Unit) {
-        availableModels = ModelCatalog.models + DesktopKokoroVoiceCatalog.voices + runCatching { DesktopEdgeVoiceRepository().load() }.getOrDefault(emptyList())
+        val models = ModelCatalog.models + DesktopKokoroVoiceCatalog.voices + runCatching { DesktopEdgeVoiceRepository().load() }.getOrDefault(emptyList())
+        availableModels = models
+        downloadedModels = models.filter(modelRepository::isInstalled).map { it.id }.toSet()
     }
 
     MaterialTheme(colors = if (darkMode) darkColors() else lightColors()) {
@@ -126,13 +130,18 @@ private fun DesktopApp() {
                         BookDetailScreen(
                             book = openedBook,
                             playback = playbackSessions.getOrPut(openedBook.path) {
-                                DesktopPlaybackSession(scope, modelRepository.audioCache(), { model -> DesktopTtsEngine(modelRepository.directory(model), model) })
+                                DesktopPlaybackSession(scope, modelRepository.audioCache(), { request ->
+                                    DesktopTtsEngine(modelRepository.directory(request.model), request.model, request.referenceAudioPath, request.referenceText)
+                                })
                             },
                             availableModels = availableModels,
                             downloadedModels = downloadedModels,
                             modelRepository = modelRepository,
                             selectedModelId = selectedModelId,
                             onModelSelected = { selectedModelId = it },
+                            onReferenceAudioSelected = { path ->
+                                updateBooks(books.map { if (it.path == openedBook.path) it.copy(referenceAudioPath = path) else it })
+                            },
                             onBack = { openedBookPath = null },
                             onBookChanged = { updated -> updateBooks(books.map { if (it.path == updated.path) updated else it }) },
                         )
@@ -193,7 +202,9 @@ private fun DesktopApp() {
                             runCatching {
                                 modelRepository.download(selected) { downloadProgress = it }
                             }.onSuccess {
-                                downloadedModels = downloadedModels + selected.id
+                                downloadedModels = downloadedModels + availableModels
+                                    .filter { it.storageId == selected.storageId && modelRepository.isInstalled(it) }
+                                    .map { it.id }
                             }
                             downloadingModel = null
                         }
@@ -277,6 +288,15 @@ private val SUPPORTED_BOOK_EXTENSIONS = setOf("pdf", "epub", "txt", "html", "htm
 private fun defaultBookDirectory(): File {
     val home = System.getProperty("user.home")?.let(::File)
     return home?.takeIf { it.isDirectory } ?: File(System.getProperty("user.dir", "."))
+}
+
+private fun chooseReferenceWav(): String? {
+    val dialog = FileDialog(null as java.awt.Frame?, "Choose reference WAV", FileDialog.LOAD)
+    dialog.setFilenameFilter(FilenameFilter { _, name -> name.lowercase().endsWith(".wav") })
+    dialog.setVisible(true)
+    val directory = dialog.directory ?: return null
+    val file = dialog.file ?: return null
+    return java.io.File(directory, file).absolutePath
 }
 
 @Composable
@@ -401,6 +421,7 @@ private fun BookDetailScreen(
     modelRepository: DesktopModelRepository,
     selectedModelId: String,
     onModelSelected: (String) -> Unit,
+    onReferenceAudioSelected: (String) -> Unit,
     onBack: () -> Unit,
     onBookChanged: (DesktopBook) -> Unit,
 ) {
@@ -411,12 +432,15 @@ private fun BookDetailScreen(
     var settingsExpanded by remember(book.path) { mutableStateOf(false) }
     var modelMenuExpanded by remember(book.path) { mutableStateOf(false) }
     var speed by remember(book.path) { mutableStateOf(book.speed) }
+    var speakerText by remember(book.path) { mutableStateOf(book.speakerId.toString()) }
+    var referenceText by remember(book.path) { mutableStateOf(book.referenceText) }
     var status by remember(book.path) { mutableStateOf<String?>(null) }
     val playbackState by playback.state.collectAsState()
     val playing = playbackState.phase == PlaybackPhase.PLAYING
     val latestBook by rememberUpdatedState(book)
     val notifyBookChanged by rememberUpdatedState(onBookChanged)
     val selectedVoiceId = book.modelId.ifBlank { selectedModelId }
+    val selectedModel = availableModels.firstOrNull { it.id == selectedVoiceId }
     val percentage = if (chunks.size <= 1) 0 else ((currentFragment.toFloat() / (chunks.size - 1)) * 100).toInt().coerceIn(0, 100)
 
     fun savePosition(index: Int, positionMs: Long = 0) {
@@ -426,7 +450,8 @@ private fun BookDetailScreen(
 
     LaunchedEffect(selectedVoiceId, speed) {
         availableModels.firstOrNull { it.id == selectedVoiceId }?.let { model ->
-            playback.refreshCache(DesktopPlaybackRequest(book.path, chunks, model, currentFragment, speed = speed))
+            playback.refreshCache(DesktopPlaybackRequest(book.path, chunks, model, currentFragment, speed = speed,
+                speakerId = book.speakerId, referenceAudioPath = book.referenceAudioPath, referenceText = book.referenceText))
         }
     }
     LaunchedEffect(playbackState.fragment, playbackState.phase) {
@@ -489,7 +514,32 @@ private fun BookDetailScreen(
                         Slider(value = speed, onValueChange = { speed = it }, valueRange = 0.5f..2.5f,
                             enabled = !playbackState.busy,
                             onValueChangeFinished = { onBookChanged(latestBook.copy(speed = speed, positionMs = 0)) })
+                        if (selectedModel?.family == com.audiobookreader.data.ModelFamily.SUPERTONIC) {
+                            TextField(
+                                value = speakerText,
+                                onValueChange = { value ->
+                                    speakerText = value.filter(Char::isDigit).take(2)
+                                    value.toIntOrNull()?.coerceIn(0, 9)?.let { onBookChanged(latestBook.copy(speakerId = it, positionMs = 0)) }
+                                },
+                                label = { Text("Voice (0–9: M1–M5, F1–F5)") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                         Text("Settings are saved for this book", color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f))
+                        if (selectedModel?.family == com.audiobookreader.data.ModelFamily.POCKET || selectedModel?.family == com.audiobookreader.data.ModelFamily.ZIPVOICE) {
+                            Text("Voice cloning", color = MaterialTheme.colors.onSurface.copy(alpha = 0.75f))
+                            OutlinedButton(onClick = { chooseReferenceWav()?.let(onReferenceAudioSelected) }, Modifier.fillMaxWidth()) {
+                                Text(if (book.referenceAudioPath.isBlank()) "Choose reference WAV" else "Reference audio selected")
+                            }
+                            if (selectedModel?.family == com.audiobookreader.data.ModelFamily.ZIPVOICE) {
+                                TextField(
+                                    value = referenceText,
+                                    onValueChange = { referenceText = it; onBookChanged(latestBook.copy(referenceText = it)) },
+                                    label = { Text("Exact reference transcript") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -517,7 +567,8 @@ private fun BookDetailScreen(
                                 status = null
                                 onBookChanged(latestBook.copy(modelId = model.id, speed = speed))
                                 playback.play(DesktopPlaybackRequest(book.path, chunks, model, currentFragment,
-                                    positionMs = book.positionMs, speed = speed))
+                                    positionMs = book.positionMs, speed = speed, speakerId = book.speakerId,
+                                    referenceAudioPath = book.referenceAudioPath, referenceText = book.referenceText))
                             }
                         }
                     },

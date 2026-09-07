@@ -5,4 +5,6 @@ data class BookTtsSettings(
     val modelId: String,
     val speed: Float = 1f,
     val speakerId: Int = 0,
+    val referenceAudioPath: String = "",
+    val referenceText: String = "",
 )

@@ -9,7 +9,7 @@ Android PDF/EPUB/text reader with local text-to-speech and background playback.
 - Downloadable multilingual Sherpa-ONNX model catalog with language filtering.
 - Models are downloaded and used inside the app; they are not registered as system TTS engines.
 - After a download completes, the model is selected automatically and its actual contents are validated, including packages containing nested directories.
-- `OfflineTts` adapter for Piper/VITS, Coqui VITS, Mimic3 VITS, Kokoro, and Supertonic.
+- `OfflineTts` adapter for Piper/VITS, Coqui VITS, Mimic3 VITS, Kokoro, Supertonic, PocketTTS and ZipVoice.
 - Edge TTS voices loaded from the live public voice catalogue and marked `ONLINE`; no Edge model files are bundled or downloaded.
 - License-aware downloads: models with additional conditions show their license, attribution, obligations, and accept/reject action before downloading.
 - Chunk-based PCM-to-WAV generation with a Media3 playlist.
@@ -70,10 +70,12 @@ The list was cross-checked against `scripts/apk/generate-tts-apk-script.py` from
 
 - Piper/VITS: Sherpa-ONNX's catalog for dozens of languages, including Miro, Davefx, and Sharvard for `es_ES`.
 - Coqui VITS and Mimic3 VITS: Sherpa-ONNX packages that the `OfflineTts` engine can run internally.
-- Kokoro: v0.19 English and the v1.0 multilingual package, including its 53 verified voice embeddings and INT8 variant. The Android adapter passes the selected Kokoro language to Sherpa-ONNX instead of relying on the default language.
-- Supertonic 3 INT8: Spanish and other languages in a multilingual package.
+- Kokoro: the v1.0 multilingual package with 54 verified voice embeddings, including the three Spanish voices, and its INT8 variant. The Android adapter passes the selected Kokoro language to Sherpa-ONNX instead of relying on the default language.
+- Supertonic 3 INT8: one shared package, 31 languages and ten built-in speakers (`M1`–`M5`, `F1`–`F5`).
+- PocketTTS INT8: local English zero-shot voice cloning from a reference WAV.
+- ZipVoice Distill INT8: local Chinese/English zero-shot cloning from a WAV and its exact transcript; the Vocos vocoder is installed automatically.
 
-The official Sherpa-ONNX v1.0 voice bundle contains `ef_dora` and `em_alex` at speaker IDs 28 and 29. The upstream Kokoro catalogue also lists `em_santa`, but that embedding is not present in Sherpa-ONNX's published v1.0 `voices.bin`; BookReader therefore does not expose it as a working voice. This avoids presenting a speaker ID that would read past the downloaded voice bundle. The Sherpa package still needs device validation for every non-English language, and the app keeps Piper/Supertonic Spanish models available as fallbacks.
+BookReader uses a verified 54-voice Kokoro v1.0 bundle, including the Spanish `ef_dora`, `em_alex` and `em_santa` embeddings. Model weights are never bundled in the Android APK; they are downloaded on demand and validated after extraction.
 
 ## Technical references
 

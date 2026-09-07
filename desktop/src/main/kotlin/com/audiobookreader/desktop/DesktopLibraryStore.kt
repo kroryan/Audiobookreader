@@ -13,6 +13,9 @@ data class DesktopBook(
     val positionMs: Long = 0,
     val modelId: String = "",
     val speed: Float = 1f,
+    val speakerId: Int = 0,
+    val referenceAudioPath: String = "",
+    val referenceText: String = "",
 )
 
 /** Keeps the desktop shelf across launches, like Android's persisted library. */
@@ -35,7 +38,9 @@ object DesktopLibraryStore {
                         currentFragment = saved.getInt("fragment", 0),
                         bookmarks = saved.get("bookmarks", "").split(',').mapNotNull(String::toIntOrNull),
                         positionMs = saved.getLong("position-ms", 0),
-                        modelId = saved.get("model", ""), speed = saved.getFloat("speed", 1f))
+                        modelId = saved.get("model", ""), speed = saved.getFloat("speed", 1f),
+                        speakerId = saved.getInt("speaker", 0),
+                        referenceAudioPath = saved.get("reference-audio", ""), referenceText = saved.get("reference-text", ""))
                 }.getOrNull()
             }
     }.getOrDefault(emptyList())
@@ -52,6 +57,9 @@ object DesktopLibraryStore {
                     putLong("position-ms", book.positionMs)
                     put("model", book.modelId)
                     putFloat("speed", book.speed)
+                    putInt("speaker", book.speakerId)
+                    put("reference-audio", book.referenceAudioPath)
+                    put("reference-text", book.referenceText)
                 }
             }
             preferences.flush()

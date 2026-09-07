@@ -1,6 +1,6 @@
 package com.audiobookreader.data
 
-enum class ModelFamily { PIPER, COQUI, MIMIC3, KOKORO, KITTEN, SUPERTONIC, EDGE }
+enum class ModelFamily { PIPER, COQUI, MIMIC3, KOKORO, KITTEN, SUPERTONIC, POCKET, ZIPVOICE, EDGE }
 
 data class TtsModelSpec(
     val id: String,
@@ -23,6 +23,12 @@ data class TtsModelSpec(
     val licenseUrl: String = "",
     val attribution: String = "",
     val requiresAcceptance: Boolean = false,
+    val storageId: String = id,
+    val requiredFiles: List<String> = emptyList(),
+    val auxiliaryUrl: String = "",
+    val auxiliaryName: String = "",
+    val referenceAudioRequired: Boolean = false,
+    val referenceTextRequired: Boolean = false,
 )
 
 data class KokoroVoice(
@@ -36,6 +42,14 @@ object ModelCatalog {
     private const val base = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
     private const val kokoroSantaArchive =
         "https://github.com/kroryan/Audiobookreader/releases/download/kokoro-v1.0-54/kokoro-multi-lang-v1_0-em-santa.tar.bz2"
+    private const val supertonicArchive =
+        "${base}sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2"
+    private const val pocketArchive =
+        "${base}sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2"
+    private const val zipVoiceArchive =
+        "${base}sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2"
+    private const val zipVoiceVocoder =
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx"
 
     // Sherpa-ONNX's current Android TTS script contains these Piper voices.
     // Only the small catalog entries are bundled; the archives remain remote.
@@ -291,14 +305,81 @@ vits-piper-zh_CN-chaowen-medium
         )
     }
 
+    private val supertonicLanguages = listOf(
+        "en", "ko", "ja", "ar", "bg", "cs", "da", "de", "el", "es", "et",
+        "fi", "fr", "hi", "hr", "hu", "id", "it", "lt", "lv", "nl", "pl",
+        "pt", "ro", "ru", "sk", "sl", "sv", "tr", "uk", "vi",
+    )
+
+    private val supertonicRequiredFiles = listOf(
+        "duration_predictor.int8.onnx", "text_encoder.int8.onnx",
+        "vector_estimator.int8.onnx", "vocoder.int8.onnx", "tts.json",
+        "unicode_indexer.bin", "voice.bin",
+    )
+
+    private fun supertonic(language: String): TtsModelSpec = TtsModelSpec(
+        id = "supertonic-3-$language",
+        name = "Supertonic 3 INT8 · $language · 10 voices",
+        family = ModelFamily.SUPERTONIC,
+        language = language,
+        archiveName = supertonicArchive,
+        modelName = "",
+        licenseSpdx = "OpenRAIL-M",
+        licenseUrl = "https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE",
+        attribution = "Supertone Inc.",
+        requiresAcceptance = true,
+        storageId = "supertonic-3-int8",
+        requiredFiles = supertonicRequiredFiles,
+    )
+
+    private val pocketRequiredFiles = listOf(
+        "lm_flow.int8.onnx", "lm_main.int8.onnx", "encoder.onnx", "decoder.int8.onnx",
+        "text_conditioner.onnx", "vocab.json", "token_scores.json",
+    )
+
+    private val pocket = TtsModelSpec(
+        id = "pocket-tts-int8",
+        name = "PocketTTS INT8 · English · voice cloning",
+        family = ModelFamily.POCKET,
+        language = "en",
+        archiveName = pocketArchive,
+        modelName = "",
+        licenseSpdx = "MIT + model terms",
+        licenseUrl = "https://github.com/kyutai-labs/pocket-tts/blob/main/LICENSE",
+        attribution = "Kyutai Labs and PocketTTS contributors",
+        requiresAcceptance = true,
+        requiredFiles = pocketRequiredFiles,
+        referenceAudioRequired = true,
+    )
+
+    private val zipVoice = TtsModelSpec(
+        id = "zipvoice-distill-int8-zh-en",
+        name = "ZipVoice Distill INT8 · Chinese + English · voice cloning",
+        family = ModelFamily.ZIPVOICE,
+        language = "zh-en",
+        archiveName = zipVoiceArchive,
+        modelName = "encoder.int8.onnx",
+        voices = "vocos_24khz.onnx",
+        lexicon = "lexicon.txt",
+        dataDir = "espeak-ng-data",
+        licenseSpdx = "Apache-2.0",
+        licenseUrl = "https://github.com/k2-fsa/ZipVoice/blob/main/LICENSE",
+        attribution = "Alibaba DAMO Academy and ZipVoice contributors",
+        requiresAcceptance = true,
+        requiredFiles = listOf("encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt", "lexicon.txt"),
+        auxiliaryUrl = zipVoiceVocoder,
+        auxiliaryName = "vocos_24khz.onnx",
+        referenceAudioRequired = true,
+        referenceTextRequired = true,
+    )
+
     val models: List<TtsModelSpec> = piperDirs.map(::piper) +
         coquiDirs.map { vitsModel(it, ModelFamily.COQUI) } +
         mimic3Dirs.map { vitsModel(it, ModelFamily.MIMIC3) } + listOf(
             // One shared package is used by all Kokoro voices. This package
             // includes the additional Spanish em_santa embedding.
             TtsModelSpec("kokoro-multi-v1-0", "Kokoro v1.0 · 9 languages · 54 voices", ModelFamily.KOKORO, "all", kokoroSantaArchive, "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
-            TtsModelSpec("supertonic-es", "Supertonic 3 INT8 · Spanish", ModelFamily.SUPERTONIC, "es", "${base}sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2", "", experimental = false, licenseSpdx = "OpenRAIL-M", licenseUrl = "https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE", attribution = "Supertone Inc.", requiresAcceptance = true),
-        )
+        ) + supertonicLanguages.map(::supertonic) + listOf(pocket, zipVoice)
 
     /** Speaker IDs are the order used by sherpa-onnx's official v1.0 voices.bin. */
     val kokoroVoices: List<KokoroVoice> = listOf(

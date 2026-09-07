@@ -137,7 +137,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                 job?.cancel()
                 PlaybackService.stop(appContext)
             }
-            val maxSpeakerId = if (spec.family == ModelFamily.KOKORO) 53 else 31
+            val maxSpeakerId = speakerLimit(spec)
             val updated = current.bookTtsSettings.copy(
                 modelId = spec.id,
                 speakerId = current.bookTtsSettings.speakerId.coerceIn(0, maxSpeakerId),
@@ -168,7 +168,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     fun setBookSpeakerId(speakerId: Int) {
         val current = _state.value
         val book = current.selectedBook ?: return
-        val maxSpeakerId = if (current.selectedModel.family == ModelFamily.KOKORO) 53 else 31
+        val maxSpeakerId = speakerLimit(current.selectedModel)
         val updated = current.bookTtsSettings.copy(speakerId = speakerId.coerceIn(0, maxSpeakerId))
         if (updated.speakerId == current.bookTtsSettings.speakerId) return
         saveBookTtsSettings(book.id, updated)
@@ -362,9 +362,13 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                     refreshModels()
                     val book = _state.value.selectedBook
                     settings.edit().putString(KEY_SELECTED_MODEL, spec.id).apply()
+                    val sharedInstalled = _state.value.availableModels
+                        .filter { it.storageId == spec.storageId && models.isInstalled(it) }
+                        .map { it.id }
+                        .toSet()
                     _state.value = _state.value.copy(
                         selectedModel = spec,
-                        installed = _state.value.installed + spec.id,
+                        installed = _state.value.installed + sharedInstalled + spec.id,
                         downloading = null,
                         cacheStatus = book?.let { audioCache.status(it, spec) },
                         readyChunks = book?.let { audioCache.readyChunks(it.id, spec.id) } ?: emptySet(),
@@ -415,6 +419,14 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
             _state.value = current.copy(message = "Descarga primero el modelo seleccionado")
             return
         }
+        if (spec.referenceAudioRequired || spec.referenceTextRequired) {
+            val cacheKey = referenceCacheKey(ttsSettings)
+            val keyName = "book.${book.id}.reference-cache.${spec.id}"
+            if (settings.getString(keyName, null) != cacheKey) {
+                audioCache.clearModel(book.id, spec.id)
+                settings.edit().putString(keyName, cacheKey).apply()
+            }
+        }
         generationJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 withContext(Dispatchers.Main) {
@@ -432,7 +444,13 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                         renderEdgeChunk(cache, chunk, index, spec, ttsSettings)
                     }
                 } else {
-                    SherpaTtsEngine(models.directory(spec), spec, ttsSettings.speakerId).use { engine ->
+                    val reference = withContext(Dispatchers.IO) { loadReferenceAudio(ttsSettings) }
+                    SherpaTtsEngine(
+                        models.directory(spec), spec, ttsSettings.speakerId,
+                        referenceAudio = reference?.samples,
+                        referenceSampleRate = reference?.sampleRate ?: 0,
+                        referenceText = ttsSettings.referenceText.takeIf(String::isNotBlank),
+                    ).use { engine ->
                         playWithRenderer(book, spec, current.progress, requestedStart, chunks, initialFiles) { chunk, index ->
                             renderChunk(cache, chunk, index, engine, ttsSettings)
                         }
@@ -637,11 +655,13 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
             ?: settings.getString(KEY_SELECTED_MODEL, null)
             ?: allModels.first().id
         val model = allModels.firstOrNull { it.id == modelId }
-        val maxSpeakerId = if (model?.family == ModelFamily.KOKORO) 53 else 31
+        val maxSpeakerId = model?.let(::speakerLimit) ?: 31
         return BookTtsSettings(
             modelId = modelId,
             speed = settings.getFloat("book.$bookId.speed", 1f).coerceIn(0.5f, 2.5f),
             speakerId = settings.getInt("book.$bookId.speaker", 0).coerceIn(0, maxSpeakerId),
+            referenceAudioPath = settings.getString("book.$bookId.reference-audio", "").orEmpty(),
+            referenceText = settings.getString("book.$bookId.reference-text", "").orEmpty(),
         )
     }
 
@@ -650,7 +670,63 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
             .putString("book.$bookId.model", value.modelId)
             .putFloat("book.$bookId.speed", value.speed)
             .putInt("book.$bookId.speaker", value.speakerId)
+            .putString("book.$bookId.reference-audio", value.referenceAudioPath)
+            .putString("book.$bookId.reference-text", value.referenceText)
             .apply()
+    }
+
+    fun setBookReferenceText(value: String) {
+        val book = _state.value.selectedBook ?: return
+        if (value == _state.value.bookTtsSettings.referenceText) return
+        val updated = _state.value.bookTtsSettings.copy(referenceText = value)
+        saveBookTtsSettings(book.id, updated)
+        _state.value = _state.value.copy(bookTtsSettings = updated)
+    }
+
+    fun importReferenceAudio(uri: Uri) {
+        val book = _state.value.selectedBook ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val directory = File(appContext.filesDir, "voice-references").also { it.mkdirs() }
+                val target = File(directory, "${book.id}.wav")
+                appContext.contentResolver.openInputStream(uri).use { input ->
+                    checkNotNull(input) { "No se pudo leer el audio" }
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+                WavFile.read(target)
+                target.absolutePath
+            }.onSuccess { path ->
+                withContext(Dispatchers.Main) {
+                    val updated = _state.value.bookTtsSettings.copy(referenceAudioPath = path)
+                    saveBookTtsSettings(book.id, updated)
+                    _state.value = _state.value.copy(bookTtsSettings = updated, message = "Audio de referencia guardado")
+                    invalidateBookAudio(book, "Audio de referencia cambiado; el audio se regenerará")
+                }
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) { _state.value = _state.value.copy(message = "Audio no válido: ${error.message}") }
+            }
+        }
+    }
+
+    private fun loadReferenceAudio(value: BookTtsSettings): WavFile.Audio? {
+        if (value.referenceAudioPath.isBlank()) return null
+        return WavFile.read(File(value.referenceAudioPath))
+    }
+
+    private fun referenceCacheKey(value: BookTtsSettings): String {
+        val file = value.referenceAudioPath.takeIf(String::isNotBlank)?.let(::File)
+        return listOf(
+            value.referenceAudioPath,
+            file?.length() ?: 0L,
+            file?.lastModified() ?: 0L,
+            value.referenceText,
+        ).joinToString("|")
+    }
+
+    private fun speakerLimit(spec: TtsModelSpec): Int = when (spec.family) {
+        ModelFamily.KOKORO -> 53
+        ModelFamily.SUPERTONIC -> 9
+        else -> 31
     }
 
     companion object {

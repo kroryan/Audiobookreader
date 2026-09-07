@@ -32,6 +32,8 @@ data class DesktopPlaybackRequest(
     val positionMs: Long = 0,
     val speed: Float = 1f,
     val speakerId: Int = 0,
+    val referenceAudioPath: String = "",
+    val referenceText: String = "",
 )
 
 enum class PlaybackPhase { IDLE, PREPARING, PLAYING, STOPPING, CLEARING, FINISHED, ERROR }
@@ -52,7 +54,8 @@ class DesktopAudioCache(private val root: File) {
 
     fun file(request: DesktopPlaybackRequest, index: Int): File {
         val identity = listOf("wav-v2", request.model.id, request.model.modelName, request.model.voiceId,
-            request.speakerId.toString(), request.speed.toString(), request.chunks[index]).joinToString("\u0000")
+            request.speakerId.toString(), request.speed.toString(), request.referenceAudioPath,
+            request.referenceText, request.chunks[index]).joinToString("\u0000")
         val digest = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
         return File(bookDirectory(request.bookPath), "$index-$digest.wav")
@@ -101,7 +104,7 @@ class DesktopAudioCache(private val root: File) {
 class DesktopPlaybackSession(
     private val scope: CoroutineScope,
     private val cache: DesktopAudioCache,
-    private val engineFactory: (TtsModelSpec) -> DesktopSpeechEngine,
+    private val engineFactory: (DesktopPlaybackRequest) -> DesktopSpeechEngine,
     private val player: DesktopAudioOutput = DesktopAudioPlayer(),
 ) {
     private val mutableState = MutableStateFlow(DesktopPlaybackState())
@@ -136,7 +139,7 @@ class DesktopPlaybackSession(
                                 ensureActive()
                                 val output = cache.file(request, index)
                                 if (!cache.isReady(output)) {
-                                    if (engine == null) engine = engineFactory(request.model)
+                                    if (engine == null) engine = engineFactory(request)
                                     ensureActive()
                                     check(output.parentFile.isDirectory || output.parentFile.mkdirs()) { "Cannot create audio cache directory" }
                                     val temporary = File.createTempFile("fragment-", ".part", output.parentFile)

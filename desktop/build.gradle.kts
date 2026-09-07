@@ -40,9 +40,14 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "com.audiobookreader.desktop.MainKt"
+        buildTypes.release.proguard {
+            // Compose Desktop 1.5.12 bundles ProGuard 7.2, which cannot read
+            // the Java 21 runtime modules used by this project.
+            isEnabled.set(false)
+        }
         nativeDistributions {
             packageName = "BookReader"
-            packageVersion = "0.1.8"
+            packageVersion = "0.1.14"
             description = "Read books aloud with downloadable local voices"
             vendor = "BookReader"
             modules("java.desktop", "java.logging", "java.prefs", "jdk.crypto.ec", "jdk.unsupported")

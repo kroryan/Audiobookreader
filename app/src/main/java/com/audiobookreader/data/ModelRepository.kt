@@ -24,12 +24,15 @@ class ModelRepository(context: Context) {
     private val root = File(appContext.filesDir, "tts-models").also { it.mkdirs() }
     private val metadata = appContext.getSharedPreferences("bookreader-models", Context.MODE_PRIVATE)
 
-    private fun rootDir(spec: TtsModelSpec) = File(root, spec.id)
+    private fun rootDir(spec: TtsModelSpec) = File(root, spec.storageId)
 
     private fun modelFile(spec: TtsModelSpec): File? {
         val rootDir = rootDir(spec)
         if (!rootDir.isDirectory) return null
-        if (spec.modelName.isBlank()) return rootDir.walkTopDown().firstOrNull { it.isFile && it.name == "tts.json" }
+        if (spec.modelName.isBlank()) {
+            val expected = spec.requiredFiles.firstOrNull() ?: "tts.json"
+            return rootDir.walkTopDown().firstOrNull { it.isFile && it.name == expected }
+        }
         return rootDir.walkTopDown().firstOrNull { it.isFile && it.name == spec.modelName }
     }
 
@@ -45,7 +48,7 @@ class ModelRepository(context: Context) {
         // The marker is written only after the archive has been fully extracted
         // and the expected model file has been found. Keep the model-file
         // fallback so installations made by older app versions remain usable.
-        val installed = (marker.isFile && marker.readText() == spec.id) || modelFile(spec) != null
+        val installed = (marker.isFile && marker.readText() == spec.storageId) || modelFile(spec) != null
         if (!installed) return false
         if (spec.family == ModelFamily.KOKORO) {
             // A previous app version installed the 53-speaker package under
@@ -54,7 +57,8 @@ class ModelRepository(context: Context) {
             val voices = File(rootDir, spec.voices)
             if (voices.length() != KOKORO_VOICE_BYTES * KOKORO_VOICE_COUNT) return false
         }
-        return true
+        return spec.requiredFiles.all { required -> rootDir(spec).walkTopDown().any { it.isFile && it.name == required } } &&
+            (spec.auxiliaryName.isBlank() || rootDir(spec).walkTopDown().any { it.isFile && it.name == spec.auxiliaryName })
     }
 
     fun importedModels(): List<TtsModelSpec> = runCatching {
@@ -175,8 +179,8 @@ class ModelRepository(context: Context) {
     suspend fun download(spec: TtsModelSpec, progress: (Int) -> Unit) = withContext(Dispatchers.IO) {
         progress(0)
         val target = rootDir(spec)
-        val installing = File(root, "${spec.id}.installing")
-        val archive = File(root, "${spec.id}.part")
+        val installing = File(root, "${spec.storageId}.installing")
+        val archive = File(root, "${spec.storageId}.part")
         val connection = URL(spec.archiveName).openConnection() as HttpURLConnection
         connection.connectTimeout = 20_000
         connection.readTimeout = 60_000
@@ -245,9 +249,49 @@ class ModelRepository(context: Context) {
         check(modelFileIn(installing, spec) != null) {
             "El paquete no contiene ${spec.modelName.ifBlank { "los archivos del modelo" }}"
         }
-        File(installing, INSTALL_MARKER).writeText(spec.id)
+        if (spec.auxiliaryUrl.isNotBlank() && spec.auxiliaryName.isNotBlank()) {
+            val auxiliary = File(installing, spec.auxiliaryName)
+            val temporary = File(installing, ".${spec.auxiliaryName}.part")
+            downloadAuxiliary(spec.auxiliaryUrl, temporary) { copied, total ->
+                if (total > 0) progress((99 * copied / total).toInt().coerceIn(90, 99))
+            }
+            check(temporary.renameTo(auxiliary)) { "No se pudo instalar el archivo auxiliar" }
+        }
+        check(spec.requiredFiles.all { required -> installing.walkTopDown().any { it.isFile && it.name == required } }) {
+            "El paquete no contiene todos los archivos necesarios"
+        }
+        File(installing, INSTALL_MARKER).writeText(spec.storageId)
         check(installing.renameTo(target)) { "No se pudo guardar el modelo descargado" }
         progress(100)
+    }
+
+    private fun downloadAuxiliary(url: String, target: File, progress: (Long, Long) -> Unit) {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 20_000
+        connection.readTimeout = 60_000
+        connection.instanceFollowRedirects = true
+        connection.setRequestProperty("User-Agent", "BookReader/0.1")
+        try {
+            connection.connect()
+            check(connection.responseCode in 200..299) { "Descarga auxiliar fallida: HTTP ${connection.responseCode}" }
+            val total = connection.contentLengthLong
+            var copied = 0L
+            connection.inputStream.use { input ->
+                BufferedOutputStream(target.outputStream(), IO_BUFFER_SIZE).use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var read: Int
+                    while (input.read(buffer).also { read = it } >= 0) {
+                        if (read == 0) continue
+                        output.write(buffer, 0, read)
+                        copied += read
+                        progress(copied, total)
+                    }
+                }
+            }
+            check(target.length() > 0L) { "La descarga auxiliar terminó sin datos" }
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private class CountingInputStream(
@@ -287,7 +331,10 @@ class ModelRepository(context: Context) {
 
     private fun modelFileIn(directory: File, spec: TtsModelSpec): File? {
         if (!directory.isDirectory) return null
-        if (spec.modelName.isBlank()) return directory.walkTopDown().firstOrNull { it.isFile && it.name == "tts.json" }
+        if (spec.modelName.isBlank()) {
+            val expected = spec.requiredFiles.firstOrNull() ?: "tts.json"
+            return directory.walkTopDown().firstOrNull { it.isFile && it.name == expected }
+        }
         return directory.walkTopDown().firstOrNull { it.isFile && it.name == spec.modelName }
     }
 

@@ -12,5 +12,9 @@ upstream license notices. Important model terms:
 - Mimic3 Voices: CC BY-SA 4.0, including attribution and ShareAlike terms.
 - Kokoro-82M: Apache 2.0 weights.
 - Supertonic: OpenRAIL-M weights; its use restrictions require acceptance.
+- PocketTTS: MIT-licensed English zero-shot voice cloning; requires a user's
+  reference WAV and consent to clone that voice.
+- ZipVoice: Chinese/English zero-shot voice cloning; requires a user's WAV and
+  exact transcript, plus the Vocos vocoder.
 
 Full references are in the project root `THIRD_PARTY_NOTICES.md`.

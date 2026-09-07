@@ -13,20 +13,22 @@ import java.net.URL
 class DesktopModelRepository {
     private val root = modelStorageDirectory()
 
-    fun directory(spec: TtsModelSpec): File = File(root, spec.id)
+    fun directory(spec: TtsModelSpec): File = File(root, spec.storageId)
 
     // Use the same writable location as models, including installed /opt builds.
     fun audioCache(): DesktopAudioCache = DesktopAudioCache(File(root.parentFile, "audio-cache"))
 
-    fun isInstalled(spec: TtsModelSpec): Boolean = File(root, spec.id).let { directory ->
-        File(directory, INSTALL_MARKER).isFile && modelFile(directory, spec) != null
+    fun isInstalled(spec: TtsModelSpec): Boolean = File(root, spec.storageId).let { directory ->
+        File(directory, INSTALL_MARKER).isFile && modelFile(directory, spec) != null &&
+            spec.requiredFiles.all { required -> directory.walkTopDown().any { it.isFile && it.name == required } } &&
+            (spec.auxiliaryName.isBlank() || directory.walkTopDown().any { it.isFile && it.name == spec.auxiliaryName })
     }
 
     suspend fun download(spec: TtsModelSpec, progress: (Int) -> Unit) = withContext(Dispatchers.IO) {
         check(spec.archiveName.isNotBlank()) { "This voice is online and does not have a downloadable package" }
-        val target = File(root, spec.id)
-        val installing = File(root, "${spec.id}.installing")
-        val archive = File(root, "${spec.id}.part")
+        val target = File(root, spec.storageId)
+        val installing = File(root, "${spec.storageId}.installing")
+        val archive = File(root, "${spec.storageId}.part")
         val connection = URL(spec.archiveName).openConnection() as HttpURLConnection
         connection.connectTimeout = 20_000
         connection.readTimeout = 60_000
@@ -71,7 +73,16 @@ class DesktopModelRepository {
                 }
             }
             check(modelFile(installing, spec) != null) { "The package does not contain the expected model files" }
-            File(installing, INSTALL_MARKER).writeText(spec.id)
+            if (spec.auxiliaryUrl.isNotBlank() && spec.auxiliaryName.isNotBlank()) {
+                val auxiliary = File(installing, spec.auxiliaryName)
+                val temporary = File(installing, ".${spec.auxiliaryName}.part")
+                downloadAuxiliary(spec.auxiliaryUrl, temporary, progress)
+                check(temporary.renameTo(auxiliary)) { "Could not install the auxiliary model file" }
+            }
+            check(spec.requiredFiles.all { required -> installing.walkTopDown().any { it.isFile && it.name == required } }) {
+                "The package does not contain all required model files"
+            }
+            File(installing, INSTALL_MARKER).writeText(spec.storageId)
             check(installing.renameTo(target)) { "Could not install the model" }
             progress(100)
         } finally {
@@ -83,10 +94,37 @@ class DesktopModelRepository {
 
     private fun modelFile(directory: File, spec: TtsModelSpec): File? {
         if (!directory.isDirectory) return null
-        return if (spec.modelName.isBlank()) {
-            directory.walkTopDown().firstOrNull { it.isFile && it.name == "tts.json" }
-        } else {
-            directory.walkTopDown().firstOrNull { it.isFile && it.name == spec.modelName }
+        if (spec.modelName.isBlank()) {
+            val expected = spec.requiredFiles.firstOrNull() ?: "tts.json"
+            return directory.walkTopDown().firstOrNull { it.isFile && it.name == expected }
+        }
+        return directory.walkTopDown().firstOrNull { it.isFile && it.name == spec.modelName }
+    }
+
+    private fun downloadAuxiliary(url: String, target: File, progress: (Int) -> Unit) {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 20_000
+        connection.readTimeout = 60_000
+        connection.instanceFollowRedirects = true
+        connection.setRequestProperty("User-Agent", "BookReader/0.1")
+        try {
+            connection.connect()
+            check(connection.responseCode in 200..299) { "Auxiliary download failed: HTTP ${connection.responseCode}" }
+            val total = connection.contentLengthLong
+            var copied = 0L
+            connection.inputStream.use { input -> target.outputStream().use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var read: Int
+                while (input.read(buffer).also { read = it } >= 0) {
+                    if (read == 0) continue
+                    output.write(buffer, 0, read)
+                    copied += read
+                    if (total > 0) progress((90 + copied * 9 / total).toInt().coerceIn(90, 99))
+                }
+            } }
+            check(target.length() > 0L) { "The auxiliary download was empty" }
+        } finally {
+            connection.disconnect()
         }
     }
 

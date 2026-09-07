@@ -27,6 +27,12 @@ their package notices are retained when extracted.
 - Supertonic: model weights are distributed under OpenRAIL-M; the model's
   use-based restrictions must be respected. The app requests acceptance
   before download.
+- PocketTTS: the Sherpa-ONNX export is an MIT-licensed runtime/model package
+  for English zero-shot voice cloning. The app requires acceptance and a
+  user-provided reference WAV; cloned voices must be used only with consent.
+- ZipVoice: the Sherpa-ONNX distill model is a Chinese/English zero-shot
+  voice-cloning model. It requires both a reference WAV and its exact text,
+  plus the Vocos vocoder. The app requires acceptance before downloading.
 
 Model links and license links:
 
@@ -35,6 +41,8 @@ Model links and license links:
 - Mimic3 Voices: https://github.com/MycroftAI/mimic3-voices/blob/master/LICENSE
 - Kokoro: https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE
 - Supertonic: https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE
+- PocketTTS: https://github.com/kyutai-labs/pocket-tts/blob/main/LICENSE
+- ZipVoice: https://github.com/k2-fsa/ZipVoice/blob/main/LICENSE
 - CC BY-NC-SA 4.0: https://creativecommons.org/licenses/by-nc-sa/4.0/
 
 ## Edge TTS
@@ -43,6 +51,16 @@ Edge voices are an online provider. BookReader does not download or embed
 Microsoft voice model files. Availability and use remain subject to the
 provider's service terms, endpoint availability, network access, and rate
 limits.
+
+Voice cloning
+
+PocketTTS and ZipVoice are local zero-shot voice-cloning models. BookReader
+does not ship a person's voice recording as a default for cloning. Users are
+responsible for having permission to use any reference audio and for complying
+with applicable disclosure and synthetic-media laws. ZipVoice currently uses
+the upstream bilingual Chinese/English checkpoint; PocketTTS currently uses
+the English Sherpa-ONNX checkpoint. These entries are not presented as
+unsupported multilingual downloads.
 
 ## Other runtime dependencies
 

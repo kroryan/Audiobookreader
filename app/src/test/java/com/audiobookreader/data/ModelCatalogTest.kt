@@ -51,4 +51,24 @@ class ModelCatalogTest {
         assertTrue(packageSpec.archiveName.endsWith("kokoro-multi-lang-v1_0-em-santa.tar.bz2"))
         assertEquals("Apache-2.0", packageSpec.licenseSpdx)
     }
+
+    @Test
+    fun multilingualAndCloningFamiliesDeclareTheirInstallRequirements() {
+        val supertonic = ModelCatalog.models.filter { it.family == ModelFamily.SUPERTONIC }
+        assertEquals(31, supertonic.size)
+        assertTrue(supertonic.map { it.language }.containsAll(listOf("en", "es", "ja")))
+        assertEquals(1, supertonic.map { it.storageId }.distinct().size)
+        assertTrue(supertonic.all { it.requiredFiles.contains("voice.bin") && it.requiresAcceptance })
+
+        val pocket = ModelCatalog.models.first { it.family == ModelFamily.POCKET }
+        assertEquals("en", pocket.language)
+        assertTrue(pocket.referenceAudioRequired)
+        assertTrue(pocket.requiredFiles.contains("text_conditioner.onnx"))
+
+        val zipVoice = ModelCatalog.models.first { it.family == ModelFamily.ZIPVOICE }
+        assertTrue(zipVoice.referenceAudioRequired)
+        assertTrue(zipVoice.referenceTextRequired)
+        assertTrue(zipVoice.auxiliaryName.endsWith(".onnx"))
+        assertTrue(zipVoice.requiredFiles.contains("decoder.int8.onnx"))
+    }
 }

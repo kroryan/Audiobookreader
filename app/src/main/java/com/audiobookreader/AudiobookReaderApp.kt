@@ -205,8 +205,12 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
     var voiceSettingsExpanded by rememberSaveable(book.id) { mutableStateOf(false) }
     var speed by remember(book.id) { mutableFloatStateOf(state.bookTtsSettings.speed) }
     var speakerText by remember(book.id) { mutableStateOf(state.bookTtsSettings.speakerId.toString()) }
+    var referenceText by remember(book.id) { mutableStateOf(state.bookTtsSettings.referenceText) }
     var seekFraction by remember { mutableFloatStateOf(0f) }
     var seeking by remember { mutableStateOf(false) }
+    val referencePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::importReferenceAudio)
+    }
     LaunchedEffect(state.progress?.positionMs, state.currentDurationMs, seeking) {
         if (!seeking && state.currentDurationMs > 0L) {
             seekFraction = ((state.progress?.positionMs ?: 0L).toFloat() / state.currentDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -274,6 +278,33 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
                         ) { Text(strings.applyVoiceSettings) }
                         if (state.selectedModel.family == ModelFamily.KOKORO) {
                             KokoroVoicePicker(state, viewModel, strings)
+                        }
+                        if (state.selectedModel.referenceAudioRequired) {
+                            Text(
+                                if (state.appLanguage == AppLanguage.SPANISH) "Clonación de voz" else "Voice cloning",
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                            OutlinedButton(
+                                onClick = { referencePicker.launch(arrayOf("audio/wav", "audio/x-wav")) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    if (state.bookTtsSettings.referenceAudioPath.isBlank()) {
+                                        if (state.appLanguage == AppLanguage.SPANISH) "Elegir audio WAV de referencia" else "Choose reference WAV audio"
+                                    } else {
+                                        if (state.appLanguage == AppLanguage.SPANISH) "Audio de referencia seleccionado" else "Reference audio selected"
+                                    }
+                                )
+                            }
+                            if (state.selectedModel.referenceTextRequired) {
+                                OutlinedTextField(
+                                    value = referenceText,
+                                    onValueChange = { referenceText = it; viewModel.setBookReferenceText(it) },
+                                    label = { Text(if (state.appLanguage == AppLanguage.SPANISH) "Transcripción exacta del audio" else "Exact reference transcript") },
+                                    supportingText = { Text(if (state.appLanguage == AppLanguage.SPANISH) "ZipVoice necesita que coincida con el audio." else "ZipVoice requires this to match the audio.") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                         }
                     }
                 }
@@ -465,6 +496,15 @@ private fun ModelCard(
             if (spec.id == "kokoro-multi-v1-0") {
                 Text("One download · 54 verified voices · English, Spanish, French, Hindi, Italian, Japanese, Portuguese and Chinese")
             }
+            if (spec.family == ModelFamily.SUPERTONIC) {
+                Text("One shared download · 31 languages · 10 voices (M1–M5, F1–F5)")
+            }
+            if (spec.family == ModelFamily.POCKET) {
+                Text("English voice cloning · choose a short reference WAV in Voice settings")
+            }
+            if (spec.family == ModelFamily.ZIPVOICE) {
+                Text("Chinese + English voice cloning · reference WAV and exact transcript required")
+            }
             if (spec.experimental) Text(strings.experimental)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 if (state.selectedModel.id == spec.id) Text("${strings.selected}  ")
@@ -652,5 +692,7 @@ private fun ModelFamily.label() = when (this) {
     ModelFamily.KOKORO -> "Kokoro"
     ModelFamily.KITTEN -> "Kitten"
     ModelFamily.SUPERTONIC -> "Supertonic"
+    ModelFamily.POCKET -> "PocketTTS"
+    ModelFamily.ZIPVOICE -> "ZipVoice"
     ModelFamily.EDGE -> "Edge TTS"
 }
