@@ -220,6 +220,11 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
                     Text(book.title, style = MaterialTheme.typography.headlineSmall)
                     Text("${book.chapters.size} ${strings.chapters}")
                     Text("${strings.voice}: ${state.selectedModel.name}")
+                    if (state.selectedModel.family == ModelFamily.KOKORO) {
+                        ModelCatalog.kokoroVoices.firstOrNull { it.available && it.speakerId == state.bookTtsSettings.speakerId }?.let { voice ->
+                            Text(kokoroVoiceLabel(voice, strings), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(10.dp))
@@ -456,7 +461,9 @@ private fun ModelCard(
                 if (spec.family == ModelFamily.EDGE) {
                     Text("ONLINE", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
                 } else if (state.installed.contains(spec.id)) Text(strings.downloaded)
-                else if (state.downloading == spec.id) Text("${state.downloadProgress}%")
+                else if (state.downloading == spec.id) {
+                    Text("${state.downloadProgress}% · ${if (state.downloadProgress < 60) "Downloading" else "Extracting / installing"}")
+                }
                 else TextButton(onClick = {
                     if (spec.requiresAcceptance) onLicenseRequired(spec) else viewModel.downloadModel(spec)
                 }) { Text(strings.download) }

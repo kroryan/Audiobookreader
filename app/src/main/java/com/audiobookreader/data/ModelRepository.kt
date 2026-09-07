@@ -9,6 +9,10 @@ import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.File
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.FilterInputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
@@ -160,6 +164,7 @@ class ModelRepository(context: Context) {
     }
 
     suspend fun download(spec: TtsModelSpec, progress: (Int) -> Unit) = withContext(Dispatchers.IO) {
+        progress(0)
         val target = rootDir(spec)
         val installing = File(root, "${spec.id}.installing")
         val archive = File(root, "${spec.id}.part")
@@ -173,7 +178,8 @@ class ModelRepository(context: Context) {
         try {
             check(connection.responseCode in 200..299) { "Descarga fallida: HTTP ${connection.responseCode}" }
             val total = connection.contentLengthLong
-            connection.inputStream.use { input -> archive.outputStream().use { output ->
+            connection.inputStream.use { rawInput -> BufferedInputStream(rawInput, IO_BUFFER_SIZE).use { input ->
+                BufferedOutputStream(archive.outputStream(), IO_BUFFER_SIZE).use { output ->
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                 var copied = 0L
                 var read: Int
@@ -181,7 +187,8 @@ class ModelRepository(context: Context) {
                     if (read == 0) continue
                     output.write(buffer, 0, read)
                     copied += read
-                    if (total > 0) progress((copied * 100 / total).toInt().coerceIn(0, 100))
+                    if (total > 0) progress((copied * 60 / total).toInt().coerceIn(0, 60))
+                }
                 }
             } }
             check(archive.length() > 0L) { "La descarga terminó sin datos" }
@@ -191,8 +198,14 @@ class ModelRepository(context: Context) {
         target.deleteRecursively()
         installing.deleteRecursively()
         installing.mkdirs()
-        archive.inputStream().buffered().use { compressed ->
-            BZip2CompressorInputStream(compressed).use { uncompressed ->
+        val compressedSize = archive.length()
+        CountingInputStream(
+            BufferedInputStream(archive.inputStream(), IO_BUFFER_SIZE),
+            compressedSize,
+        ) { consumed ->
+            progress((60 + (consumed * 39 / compressedSize.coerceAtLeast(1L)).toInt()).coerceIn(60, 99))
+        }.use { counted ->
+            BZip2CompressorInputStream(counted).use { uncompressed ->
                 TarArchiveInputStream(uncompressed).use { tar ->
                     var entry = tar.nextTarEntry
                     while (entry != null) {
@@ -203,12 +216,13 @@ class ModelRepository(context: Context) {
                             check(output.canonicalPath.startsWith(installing.canonicalPath + File.separator)) { "Archivo fuera del modelo" }
                             if (entry.isDirectory) output.mkdirs() else {
                                 output.parentFile?.mkdirs()
-                                output.outputStream().use { tar.copyTo(it) }
+                                BufferedOutputStream(output.outputStream(), IO_BUFFER_SIZE).use { tar.copyTo(it, IO_BUFFER_SIZE) }
                             }
                         }
                         entry = tar.nextTarEntry
                     }
                 }
+            }
             }
         }
         archive.delete()
@@ -217,6 +231,42 @@ class ModelRepository(context: Context) {
         }
         File(installing, INSTALL_MARKER).writeText(spec.id)
         check(installing.renameTo(target)) { "No se pudo guardar el modelo descargado" }
+        progress(100)
+    }
+
+    private class CountingInputStream(
+        input: InputStream,
+        private val totalBytes: Long,
+        private val onProgress: (Long) -> Unit,
+    ) : FilterInputStream(input) {
+        private var consumed = 0L
+        private var lastReported = -1
+
+        private fun report() {
+            val percentage = (consumed * 100 / totalBytes.coerceAtLeast(1L)).toInt()
+            if (percentage != lastReported) {
+                lastReported = percentage
+                onProgress(consumed)
+            }
+        }
+
+        override fun read(): Int {
+            val value = super.read()
+            if (value >= 0) {
+                consumed++
+                report()
+            }
+            return value
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            val count = super.read(buffer, offset, length)
+            if (count > 0) {
+                consumed += count
+                report()
+            }
+            return count
+        }
     }
 
     private fun modelFileIn(directory: File, spec: TtsModelSpec): File? {
@@ -228,5 +278,6 @@ class ModelRepository(context: Context) {
     companion object {
         private const val INSTALL_MARKER = ".bookreader-installed"
         private const val KEY_IMPORTED_MODELS = "imported_models"
+        private const val IO_BUFFER_SIZE = 1024 * 1024
     }
 }
