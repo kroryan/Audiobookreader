@@ -12,6 +12,7 @@ import java.util.UUID
 import java.util.prefs.Preferences
 import com.audiobookreader.data.LanguageCodes
 import com.audiobookreader.data.ModelFamily
+import com.audiobookreader.data.PocketVoice
 
 /** Downloads and installs model archives outside the application package. */
 class DesktopModelRepository {
@@ -89,6 +90,32 @@ class DesktopModelRepository {
         File(directory, INSTALL_MARKER).isFile && modelFile(directory, spec) != null &&
             spec.requiredFiles.all { required -> directory.walkTopDown().any { it.isFile && it.name == required } } &&
             (spec.auxiliaryName.isBlank() || directory.walkTopDown().any { it.isFile && it.name == spec.auxiliaryName })
+    }
+
+    fun ensurePocketVoice(voice: PocketVoice): File {
+        val extension = voice.sampleUrl.substringBefore('?').substringAfterLast('.', "wav")
+            .lowercase().replace(Regex("[^a-z0-9]"), "")
+            .ifBlank { "wav" }
+        val directory = File(root.parentFile, "pocket-voices").also { it.mkdirs() }
+        val target = File(directory, "${voice.id}.$extension")
+        if (target.isFile && target.length() > 0L) return target
+        val temporary = File(directory, ".${voice.id}.$extension.part")
+        val connection = URL(voice.sampleUrl).openConnection() as HttpURLConnection
+        connection.connectTimeout = 20_000
+        connection.readTimeout = 60_000
+        connection.instanceFollowRedirects = true
+        connection.setRequestProperty("User-Agent", "BookReader/0.1")
+        try {
+            connection.connect()
+            check(connection.responseCode in 200..299) { "Could not download PocketTTS voice: HTTP ${connection.responseCode}" }
+            connection.inputStream.use { input -> temporary.outputStream().use { output -> input.copyTo(output) } }
+            check(temporary.length() > 0L) { "Downloaded PocketTTS voice is empty" }
+            check(temporary.renameTo(target)) { "Could not install PocketTTS voice" }
+            return target
+        } finally {
+            connection.disconnect()
+            temporary.delete()
+        }
     }
 
     suspend fun download(spec: TtsModelSpec, progress: (Int) -> Unit) = withContext(Dispatchers.IO) {

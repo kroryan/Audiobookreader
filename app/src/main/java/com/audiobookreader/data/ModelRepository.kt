@@ -269,6 +269,32 @@ class ModelRepository(context: Context) {
         progress(100)
     }
 
+    suspend fun ensurePocketVoice(voice: PocketVoice): File = withContext(Dispatchers.IO) {
+        val extension = voice.sampleUrl.substringBefore('?').substringAfterLast('.', "wav")
+            .lowercase().replace(Regex("[^a-z0-9]"), "")
+            .ifBlank { "wav" }
+        val directory = File(root, "pocket-voices").also { it.mkdirs() }
+        val target = File(directory, "${voice.id}.$extension")
+        if (target.isFile && target.length() > 0L) return@withContext target
+        val temporary = File(directory, ".${voice.id}.$extension.part")
+        val connection = URL(voice.sampleUrl).openConnection() as HttpURLConnection
+        connection.connectTimeout = 20_000
+        connection.readTimeout = 60_000
+        connection.instanceFollowRedirects = true
+        connection.setRequestProperty("User-Agent", "BookReader/0.1")
+        try {
+            connection.connect()
+            check(connection.responseCode in 200..299) { "Descarga de voz fallida: HTTP ${connection.responseCode}" }
+            connection.inputStream.use { input -> temporary.outputStream().use { output -> input.copyTo(output) } }
+            check(temporary.length() > 0L) { "La voz descargada está vacía" }
+            check(temporary.renameTo(target)) { "No se pudo instalar la voz PocketTTS" }
+            target
+        } finally {
+            connection.disconnect()
+            temporary.delete()
+        }
+    }
+
     private fun downloadRemoteFiles(spec: TtsModelSpec, progress: (Int) -> Unit) {
         val target = rootDir(spec)
         val installing = File(root, "${spec.storageId}.installing")

@@ -193,10 +193,12 @@ private fun DesktopApp() {
                                                 ?: request.model.language,
                                         )
                                     } else request.model.copy(voiceId = request.voiceId)
+                                    val presetVoice = request.model.presetVoices.getOrNull(request.speakerId)
                                     DesktopTtsEngine(
                                         modelRepository.directory(request.model),
                                         runtimeModel,
-                                        request.referenceAudioPath,
+                                        presetVoice?.let(modelRepository::ensurePocketVoice)?.absolutePath
+                                            ?: request.referenceAudioPath,
                                         request.referenceText,
                                     )
                                 })
@@ -726,8 +728,11 @@ private fun BookDetailScreen(
                                 }
                             }
                         }
+                        if (selectedModel?.family == com.audiobookreader.data.ModelFamily.POCKET && selectedModel.presetVoices.isNotEmpty()) {
+                            PocketVoicePicker(selectedModel, book, playbackState, onBookChanged, latestBook)
+                        }
                         Text("Settings are saved for this book", color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f))
-                        if (selectedModel?.family == com.audiobookreader.data.ModelFamily.POCKET || selectedModel?.family == com.audiobookreader.data.ModelFamily.ZIPVOICE) {
+                        if ((selectedModel?.family == com.audiobookreader.data.ModelFamily.POCKET && selectedModel.presetVoices.isEmpty()) || selectedModel?.family == com.audiobookreader.data.ModelFamily.ZIPVOICE) {
                             Text("Voice cloning", color = MaterialTheme.colors.onSurface.copy(alpha = 0.75f))
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(
@@ -843,6 +848,37 @@ private fun BookDetailScreen(
     }
 }
 
+@Composable
+private fun PocketVoicePicker(
+    model: TtsModelSpec,
+    book: DesktopBook,
+    playbackState: DesktopPlaybackState,
+    onBookChanged: (DesktopBook) -> Unit,
+    latestBook: DesktopBook,
+) {
+    var expanded by remember(book.path, model.id) { mutableStateOf(false) }
+    val voices = model.presetVoices
+    val selected = voices.getOrNull(book.speakerId) ?: voices.first()
+    Text("PocketTTS voice", color = MaterialTheme.colors.onSurface.copy(alpha = 0.75f))
+    Box {
+        Button(onClick = { expanded = true }, Modifier.fillMaxWidth(), enabled = !playbackState.busy) {
+            Text(pocketVoiceLabel(selected), maxLines = 1)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            voices.forEachIndexed { index, voice ->
+                DropdownMenuItem(onClick = {
+                    onBookChanged(latestBook.copy(speakerId = index, positionMs = 0))
+                    expanded = false
+                }) { Text(pocketVoiceLabel(voice)) }
+            }
+        }
+    }
+    Text(
+        "The selected voice sample is downloaded when playback starts.",
+        color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f),
+    )
+}
+
 private fun percentageFor(fragment: Int, count: Int): Int =
     if (count <= 1) 0 else ((fragment.toFloat() / (count - 1)) * 100).toInt().coerceIn(0, 100)
 
@@ -866,6 +902,9 @@ private fun selectedVoiceLabel(model: TtsModelSpec?, book: DesktopBook): String 
 
 private fun supertonicVoiceLabel(voice: String): String =
     "$voice · ${if (voice.startsWith("F")) "female" else "male"}"
+
+private fun pocketVoiceLabel(voice: com.audiobookreader.data.PocketVoice): String =
+    voice.id.split('_').joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
 
 @Composable
 private fun ModelsScreen(

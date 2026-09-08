@@ -444,16 +444,33 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                         renderEdgeChunk(cache, chunk, index, spec, ttsSettings)
                     }
                 } else {
-                    val reference = withContext(Dispatchers.IO) { loadReferenceAudio(ttsSettings) }
+                    val presetVoice = spec.presetVoices.getOrNull(ttsSettings.speakerId)
+                    val referenceAudioPath = if (presetVoice != null) {
+                        withContext(Dispatchers.Main) {
+                            _state.value = _state.value.copy(message = "Descargando la voz ${presetVoice.id}…")
+                        }
+                        models.ensurePocketVoice(presetVoice).absolutePath
+                    } else {
+                        ttsSettings.referenceAudioPath
+                    }
+                    val effectiveSettings = ttsSettings.copy(referenceAudioPath = referenceAudioPath)
+                    // Preset samples are passed directly to PocketTTS. They may be
+                    // MP3/FLAC, while WavFile is intentionally limited to the
+                    // user-imported WAV reference used for voice cloning.
+                    val reference = if (presetVoice == null) {
+                        withContext(Dispatchers.IO) { loadReferenceAudio(effectiveSettings) }
+                    } else {
+                        null
+                    }
                     SherpaTtsEngine(
                         models.directory(spec), spec, ttsSettings.speakerId,
                         referenceAudio = reference?.samples,
                         referenceSampleRate = reference?.sampleRate ?: 0,
                         referenceText = ttsSettings.referenceText.takeIf(String::isNotBlank),
-                        referenceAudioPath = ttsSettings.referenceAudioPath,
+                        referenceAudioPath = referenceAudioPath,
                     ).use { engine ->
                         playWithRenderer(book, spec, current.progress, requestedStart, chunks, initialFiles) { chunk, index ->
-                            renderChunk(cache, chunk, index, engine, ttsSettings, spec)
+                            renderChunk(cache, chunk, index, engine, effectiveSettings, spec)
                         }
                     }
                 }
@@ -483,10 +500,13 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         if (!output.exists()) {
             val temporary = File(cache, ".${chunk.first}-$index.wav.part")
             temporary.delete()
-            val speechText = if (spec.family == ModelFamily.SUPERTONIC) {
-                SpeechText.forSupertonicTts(chunk.second)
-            } else {
-                SpeechText.forOfflineTts(chunk.second)
+            val speechText = when (spec.family) {
+                ModelFamily.SUPERTONIC -> SpeechText.forSupertonicTts(chunk.second)
+                // PocketTTS has its own text preparation and sentence splitter.
+                // Keep paragraph and punctuation input intact instead of applying
+                // Piper-oriented substitutions before it reaches the model.
+                ModelFamily.POCKET -> SpeechText.forPocketTts(chunk.second)
+                else -> SpeechText.forOfflineTts(chunk.second)
             }
             val samples = engine.generate(speechText, ttsSettings.speakerId, ttsSettings.speed)
             val estimatedBytes = samples.size.toLong() * 2L + 44L
@@ -749,6 +769,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     private fun speakerLimit(spec: TtsModelSpec): Int = when (spec.family) {
         ModelFamily.KOKORO -> 53
         ModelFamily.SUPERTONIC -> 9
+        ModelFamily.POCKET -> spec.presetVoices.lastIndex.coerceAtLeast(0)
         else -> 31
     }
 

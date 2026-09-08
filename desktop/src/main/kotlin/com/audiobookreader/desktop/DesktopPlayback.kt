@@ -67,10 +67,10 @@ class DesktopTtsEngine(
                 else -> emptyMap()
             })
         }
-        val speechText = if (spec.family == com.audiobookreader.data.ModelFamily.SUPERTONIC) {
-            SpeechText.forSupertonicTts(text)
-        } else {
-            SpeechText.forOfflineTts(text)
+        val speechText = when (spec.family) {
+            com.audiobookreader.data.ModelFamily.SUPERTONIC -> SpeechText.forSupertonicTts(text)
+            com.audiobookreader.data.ModelFamily.POCKET -> SpeechText.forPocketTts(text)
+            else -> SpeechText.forOfflineTts(text)
         }
         return checkNotNull(tts).generateWithConfigAndCallback(
             speechText, config, OfflineTtsCallback { 1 }

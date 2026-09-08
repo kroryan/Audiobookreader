@@ -7,6 +7,12 @@ data class TtsRemoteFile(
     val url: String,
 )
 
+data class PocketVoice(
+    val id: String,
+    val language: String,
+    val sampleUrl: String,
+)
+
 data class TtsModelSpec(
     val id: String,
     val name: String,
@@ -36,6 +42,8 @@ data class TtsModelSpec(
     val referenceTextRequired: Boolean = false,
     /** Files downloaded individually when the provider does not publish an archive. */
     val remoteFiles: List<TtsRemoteFile> = emptyList(),
+    /** Named PocketTTS voices backed by the provider's pre-made reference samples. */
+    val presetVoices: List<PocketVoice> = emptyList(),
 )
 
 data class KokoroVoice(
@@ -349,7 +357,7 @@ vits-piper-zh_CN-chaowen-medium
         "bos_before_voice.npy",
     )
 
-    private fun pocket(languageModel: String, language: String, label: String): TtsModelSpec {
+    private fun pocketClone(languageModel: String, language: String, label: String): TtsModelSpec {
         val files = pocketRequiredFiles.map { file ->
             TtsRemoteFile(file, "$pocketOnnxBase$languageModel/$file")
         }
@@ -371,19 +379,75 @@ vits-piper-zh_CN-chaowen-medium
         )
     }
 
+    private fun pocketPresets(languageModel: String, language: String, label: String): TtsModelSpec {
+        val files = pocketRequiredFiles.map { file ->
+            TtsRemoteFile(file, "$pocketOnnxBase$languageModel/$file")
+        }
+        return TtsModelSpec(
+            id = "pocket-tts-$languageModel-presets-int8",
+            name = "PocketTTS INT8 · $label · preset voices",
+            family = ModelFamily.POCKET,
+            language = language,
+            archiveName = "",
+            modelName = "",
+            licenseSpdx = "MIT (code) + CC BY 4.0 (model and voice recordings)",
+            licenseUrl = "https://huggingface.co/kyutai/tts-voices",
+            attribution = "Kyutai Labs; voice recordings from kyutai/tts-voices (check each voice's license)",
+            requiresAcceptance = true,
+            storageId = "pocket-tts-$languageModel-int8",
+            requiredFiles = pocketRequiredFiles,
+            remoteFiles = files,
+            presetVoices = pocketVoices.filter { it.language == language },
+        )
+    }
+
     // These are the current multilingual configurations published by the
     // Pocket TTS ONNX export. A language model is shared by all voices in it.
-    private val pocketLanguages = listOf(
-        pocket("english_2026-04", "en", "English"),
-        pocket("french_24l", "fr", "French 24L"),
-        pocket("german", "de", "German"),
-        pocket("german_24l", "de", "German 24L"),
-        pocket("italian", "it", "Italian"),
-        pocket("italian_24l", "it", "Italian 24L"),
-        pocket("portuguese", "pt", "Portuguese"),
-        pocket("portuguese_24l", "pt", "Portuguese 24L"),
-        pocket("spanish", "es", "Spanish"),
-        pocket("spanish_24l", "es", "Spanish 24L"),
+    val pocketVoices: List<PocketVoice> = listOf(
+        PocketVoice("alba", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/alba-mackenna/casual.wav"),
+        PocketVoice("anna", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p228_023_enhanced.wav"),
+        PocketVoice("azelma", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p303_023_enhanced.wav"),
+        PocketVoice("bill_boerst", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/voice-zero/bill_boerst.wav"),
+        PocketVoice("caro_davy", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/voice-zero/caro_davy.wav"),
+        PocketVoice("charles", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p254_023_enhanced.wav"),
+        PocketVoice("cosette", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/expresso/ex04-ex02_confused_001_channel1_499s.wav"),
+        PocketVoice("eponine", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p262_023_enhanced.wav"),
+        PocketVoice("eve", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p361_023_enhanced.wav"),
+        PocketVoice("fantine", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p244_023_enhanced.wav"),
+        PocketVoice("george", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p315_023_enhanced.wav"),
+        PocketVoice("jane", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p339_023_enhanced.wav"),
+        PocketVoice("jean", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/ears/p010/freeform_speech_01_enhanced.wav"),
+        PocketVoice("javert", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/voice-donations/Butter.wav"),
+        PocketVoice("marius", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/voice-donations/Selfie.wav"),
+        PocketVoice("mary", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p333_023_enhanced.wav"),
+        PocketVoice("michael", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p360_023_enhanced.wav"),
+        PocketVoice("paul", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p259_023_enhanced.wav"),
+        PocketVoice("peter_yearsley", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/voice-zero/peter_yearsley.wav"),
+        PocketVoice("stuart_bell", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/voice-zero/stuart_bell.wav"),
+        PocketVoice("vera", "en", "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p229_023_enhanced.wav"),
+        PocketVoice("giovanni", "it", "https://huggingface.co/kyutai/pocket-tts/resolve/add_lang_not_documented/common_voice_it_36520747-enhanced-v2.mp3"),
+        PocketVoice("lola", "es", "https://huggingface.co/kyutai/pocket-tts/resolve/add_lang_not_documented/common_voice_es_19762977-enhanced-v2.mp3"),
+        PocketVoice("juergen", "de", "https://huggingface.co/kyutai/pocket-tts/resolve/add_lang_not_documented/de-DE-juergen.mp3"),
+        PocketVoice("rafael", "pt", "https://huggingface.co/kyutai/pocket-tts/resolve/add_lang_not_documented/g-Vi8PgmSY0-enhanced-v2.wav"),
+        PocketVoice("estelle", "fr", "https://huggingface.co/kyutai/tts-voices/resolve/main/unmute-prod-website/developpeuse-3.wav"),
+    )
+
+    private val pocketCloneLanguages = listOf(
+        pocketClone("english_2026-04", "en", "English"),
+        pocketClone("french_24l", "fr", "French 24L"),
+        pocketClone("german", "de", "German"),
+        pocketClone("italian", "it", "Italian"),
+        pocketClone("portuguese", "pt", "Portuguese"),
+        pocketClone("spanish", "es", "Spanish"),
+    )
+
+    private val pocketPresetLanguages = listOf(
+        pocketPresets("english_2026-04", "en", "English"),
+        pocketPresets("french_24l", "fr", "French 24L"),
+        pocketPresets("german_24l", "de", "German 24L"),
+        pocketPresets("italian_24l", "it", "Italian 24L"),
+        pocketPresets("portuguese_24l", "pt", "Portuguese 24L"),
+        pocketPresets("spanish_24l", "es", "Spanish 24L"),
     )
 
     private val zipVoice = TtsModelSpec(
@@ -413,7 +477,8 @@ vits-piper-zh_CN-chaowen-medium
             // One shared package is used by all Kokoro voices. This package
             // includes the additional Spanish em_santa embedding.
             TtsModelSpec("kokoro-multi-v1-0", "Kokoro v1.0 · 9 languages · 54 voices", ModelFamily.KOKORO, "all", kokoroSantaArchive, "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
-        ) + supertonicLanguages.map(::supertonic) + pocketLanguages + listOf(zipVoice)
+        ) + supertonicLanguages.map(::supertonic) + pocketCloneLanguages + pocketPresetLanguages + listOf(zipVoice)
+
 
     /** Speaker IDs are the order used by sherpa-onnx's official v1.0 voices.bin. */
     val kokoroVoices: List<KokoroVoice> = listOf(

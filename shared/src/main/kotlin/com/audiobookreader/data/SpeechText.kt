@@ -18,6 +18,16 @@ object SpeechText {
         .replace(Regex("\\.{3,}"), "…")
         .replace(Regex("\\n{2,}"), "\n\n")
 
+    /**
+     * PocketTTS performs its own tokenization and text preparation. Only
+     * collapse layout whitespace here; punctuation and paragraph boundaries
+     * must remain available to its sentence splitter.
+     */
+    fun forPocketTts(text: String): String = text
+        .replace('\r', '\n')
+        .replace(Regex("[ \\t]+"), " ")
+        .trim()
+
     fun forSupertonicTts(text: String): String = text
         .replace('\r', '\n')
         .replace(Regex("[\\n\\t ]+"), " ")

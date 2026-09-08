@@ -47,7 +47,7 @@ class SherpaTtsEngine(
             check(!referenceText.isNullOrBlank()) { "Escribe la transcripción exacta del audio de referencia" }
         }
         if (nativePocket != null) {
-            check(referenceAudioPath.isNotBlank()) { "Selecciona un audio de referencia para esta voz" }
+            check(referenceAudioPath.isNotBlank()) { "Selecciona un audio de referencia o una voz predefinida" }
             val samples = ArrayList<Float>()
             val completed = nativePocket.synthesize(
                 text,

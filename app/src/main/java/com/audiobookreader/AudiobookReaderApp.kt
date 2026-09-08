@@ -67,6 +67,7 @@ import com.audiobookreader.data.Book
 import com.audiobookreader.data.AppLanguage
 import com.audiobookreader.data.ModelFamily
 import com.audiobookreader.data.ModelCatalog
+import com.audiobookreader.data.PocketVoice
 import com.audiobookreader.data.TextChunker
 import com.audiobookreader.data.TtsModelSpec
 import kotlinx.coroutines.launch
@@ -268,15 +269,19 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
                         } else if (state.selectedModel.family == ModelFamily.SUPERTONIC) {
                             SupertonicVoicePicker(state, viewModel)
                         } else if (state.selectedModel.family == ModelFamily.POCKET) {
-                            Text(
-                                if (state.appLanguage == AppLanguage.SPANISH) {
-                                    "PocketTTS usa el audio de referencia seleccionado; no hay un ID de voz que elegir."
-                                } else {
-                                    "PocketTTS uses the selected reference audio; there is no voice ID to choose."
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            if (state.selectedModel.presetVoices.isNotEmpty()) {
+                                PocketVoicePicker(state, viewModel)
+                            } else {
+                                Text(
+                                    if (state.appLanguage == AppLanguage.SPANISH) {
+                                        "PocketTTS usa el audio de referencia seleccionado."
+                                    } else {
+                                        "PocketTTS uses the selected reference audio."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         } else if (state.selectedModel.family == ModelFamily.ZIPVOICE) {
                             Text(
                                 if (state.appLanguage == AppLanguage.SPANISH) {
@@ -620,12 +625,44 @@ private fun SupertonicVoicePicker(state: ReaderState, viewModel: ReaderViewModel
     )
 }
 
+@Composable
+private fun PocketVoicePicker(state: ReaderState, viewModel: ReaderViewModel) {
+    var expanded by remember { mutableStateOf(false) }
+    val voices = state.selectedModel.presetVoices
+    val selected = voices.getOrNull(state.bookTtsSettings.speakerId) ?: voices.first()
+    Text("PocketTTS voice", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Box {
+        Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(pocketVoiceLabel(selected), maxLines = 1)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            voices.forEachIndexed { index, voice ->
+                DropdownMenuItem(
+                    text = { Text(pocketVoiceLabel(voice)) },
+                    onClick = {
+                        viewModel.setBookSpeakerId(index)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+    Text(
+        "Pre-made voice sample downloaded on first playback.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
 private fun kokoroVoiceLabel(voice: com.audiobookreader.data.KokoroVoice, strings: UiStrings): String = when (voice.id) {
     "ef_dora" -> "Dora (ef_dora) · ${strings.languageLabel("es")} · female"
     "em_alex" -> "Alex (em_alex) · ${strings.languageLabel("es")} · male"
     "em_santa" -> "Santa (em_santa) · ${strings.languageLabel("es")} · male"
     else -> "${strings.languageLabel(voice.language)} · ${voice.id}"
 }
+
+private fun pocketVoiceLabel(voice: PocketVoice): String =
+    voice.id.split('_').joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
 
 @Composable
 private fun SettingsScreen(
