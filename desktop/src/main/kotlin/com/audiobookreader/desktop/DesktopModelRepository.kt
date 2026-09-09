@@ -104,7 +104,7 @@ class DesktopModelRepository {
         connection.connectTimeout = 20_000
         connection.readTimeout = 60_000
         connection.instanceFollowRedirects = true
-        connection.setRequestProperty("User-Agent", "BookReader/0.1")
+        connection.setRequestProperty("User-Agent", "audiobookreader/0.1")
         try {
             connection.connect()
             check(connection.responseCode in 200..299) { "Could not download PocketTTS voice: HTTP ${connection.responseCode}" }
@@ -131,7 +131,7 @@ class DesktopModelRepository {
         connection.connectTimeout = 20_000
         connection.readTimeout = 60_000
         connection.instanceFollowRedirects = true
-        connection.setRequestProperty("User-Agent", "BookReader/0.1")
+        connection.setRequestProperty("User-Agent", "audiobookreader/0.1")
         try {
             connection.connect()
             check(connection.responseCode in 200..299) { "Download failed: HTTP ${connection.responseCode}" }
@@ -244,7 +244,7 @@ class DesktopModelRepository {
         connection.connectTimeout = 20_000
         connection.readTimeout = 60_000
         connection.instanceFollowRedirects = true
-        connection.setRequestProperty("User-Agent", "BookReader/0.1")
+        connection.setRequestProperty("User-Agent", "audiobookreader/0.1")
         try {
             connection.connect()
             check(connection.responseCode in 200..299) { "Auxiliary download failed: HTTP ${connection.responseCode}" }
@@ -297,9 +297,9 @@ class DesktopModelRepository {
         val fallback = File(
             System.getProperty("user.home"),
             if (System.getProperty("os.name").contains("Windows", ignoreCase = true)) {
-                "AppData/Local/BookReader/tts-models"
+                "AppData/Local/audiobookreader/tts-models"
             } else {
-                ".local/share/BookReader/tts-models"
+                ".local/share/audiobookreader/tts-models"
             },
         )
         fallback.mkdirs()

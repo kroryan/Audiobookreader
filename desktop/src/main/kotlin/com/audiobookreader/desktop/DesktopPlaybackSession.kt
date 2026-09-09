@@ -111,6 +111,7 @@ class DesktopPlaybackSession(
     private val mutableState = MutableStateFlow(DesktopPlaybackState())
     val state = mutableState.asStateFlow()
     private var session: Job? = null
+    @Volatile private var activeEngine: DesktopSpeechEngine? = null
 
     suspend fun refreshCache(request: DesktopPlaybackRequest) {
         if (session?.isActive == true) return
@@ -140,7 +141,10 @@ class DesktopPlaybackSession(
                                 ensureActive()
                                 val output = cache.file(request, index)
                                 if (!cache.isReady(output)) {
-                                    if (engine == null) engine = engineFactory(request)
+                                    if (engine == null) {
+                                        engine = engineFactory(request)
+                                        activeEngine = engine
+                                    }
                                     ensureActive()
                                     check(output.parentFile.isDirectory || output.parentFile.mkdirs()) { "Cannot create audio cache directory" }
                                     val temporary = File.createTempFile("fragment-", ".part", output.parentFile)
@@ -160,6 +164,7 @@ class DesktopPlaybackSession(
                                 ready.send(index to output)
                             }
                         } finally {
+                            activeEngine = null
                             try { engine?.close() } finally { ready.close() }
                         }
                     }
@@ -196,6 +201,7 @@ class DesktopPlaybackSession(
         if (mutableState.value.phase == PlaybackPhase.CLEARING) return
         val previous = session
         previous?.cancel()
+        activeEngine?.cancel()
         player.stop()
         mutableState.update { it.copy(phase = PlaybackPhase.STOPPING, message = "Stopping generation…") }
         session = scope.launch {
@@ -208,6 +214,7 @@ class DesktopPlaybackSession(
         if (mutableState.value.phase == PlaybackPhase.CLEARING) return
         val previous = session
         previous?.cancel()
+        activeEngine?.cancel()
         player.stop()
         mutableState.update { it.copy(phase = PlaybackPhase.CLEARING, positionMs = 0, message = "Stopping generation and clearing audio…") }
         session = scope.launch {

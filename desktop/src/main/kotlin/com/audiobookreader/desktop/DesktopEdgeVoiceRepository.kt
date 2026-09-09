@@ -27,7 +27,7 @@ class DesktopEdgeVoiceRepository {
         connection.instanceFollowRedirects = true
         connection.requestMethod = "GET"
         connection.setRequestProperty("Origin", ORIGIN)
-        connection.setRequestProperty("User-Agent", "BookReader/0.1")
+        connection.setRequestProperty("User-Agent", "audiobookreader/0.1")
         connection.setRequestProperty("Accept", "application/json")
         return try {
             connection.connect()

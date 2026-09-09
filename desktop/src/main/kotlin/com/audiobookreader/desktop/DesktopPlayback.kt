@@ -3,6 +3,7 @@ package com.audiobookreader.desktop
 import com.audiobookreader.data.SpeechText
 import com.audiobookreader.data.ModelCatalog
 import com.audiobookreader.data.TtsModelSpec
+import com.audiobookreader.tts.NativePocketTts
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
@@ -30,14 +31,38 @@ import javax.sound.sampled.Clip
 class DesktopTtsEngine(
     modelDir: File,
     private val spec: TtsModelSpec,
-    referenceAudioPath: String = "",
+    private val referenceAudioPath: String = "",
     private val referenceText: String = "",
 ) : DesktopSpeechEngine {
-    private val referenceAudio: ReferenceAudio? = referenceAudioPath.takeIf { it.isNotBlank() }?.let(::readReferenceAudio)
+    private val pocket = if (spec.family == com.audiobookreader.data.ModelFamily.POCKET && spec.remoteFiles.isNotEmpty()) NativePocketTts(modelDir.absolutePath) else null
+    private val referenceAudio: ReferenceAudio? = referenceAudioPath.takeIf {
+        pocket == null && spec.referenceAudioRequired && it.isNotBlank()
+    }?.let(::readReferenceAudio)
     private val edge = if (spec.family == com.audiobookreader.data.ModelFamily.EDGE) DesktopEdgeTtsClient() else null
-    private val tts: OfflineTts? = if (edge == null) OfflineTts(offlineConfig(modelDir, spec)) else null
+    private val tts: OfflineTts? = if (edge == null && pocket == null) OfflineTts(offlineConfig(modelDir, spec)) else null
+
+    @Volatile private var cancelled = false
 
     override fun render(text: String, speakerId: Int, speed: Float): FloatArray {
+        if (cancelled) throw kotlinx.coroutines.CancellationException()
+        if (pocket != null) {
+            check(referenceAudioPath.isNotBlank() && File(referenceAudioPath).isFile) { "Choose a reference recording or preset voice first" }
+            val chunks = ArrayList<FloatArray>()
+            val completed = pocket.synthesize(SpeechText.forPocketTts(text), referenceAudioPath,
+                object : NativePocketTts.AudioSink {
+                    override fun onAudio(samples: FloatArray): Boolean {
+                        if (cancelled) return false
+                        chunks.add(samples)
+                        return true
+                    }
+                })
+            if (cancelled) throw kotlinx.coroutines.CancellationException()
+            check(completed && chunks.isNotEmpty()) { "PocketTTS failed to generate audio; check the reference recording" }
+            val samples = FloatArray(chunks.sumOf { it.size })
+            var offset = 0
+            chunks.forEach { it.copyInto(samples, offset); offset += it.size }
+            return samples
+        }
         if (edge != null) {
             val audio = edge.synthesize(text, spec.edgeVoice, spec.language, speed)
             return decodeWave(audio)
@@ -73,13 +98,16 @@ class DesktopTtsEngine(
             else -> SpeechText.forOfflineTts(text)
         }
         return checkNotNull(tts).generateWithConfigAndCallback(
-            speechText, config, OfflineTtsCallback { 1 }
+            speechText, config, OfflineTtsCallback { if (cancelled) 0 else 1 }
         ).samples
     }
 
-    override fun sampleRate(): Int = edge?.let { 24_000 } ?: checkNotNull(tts).sampleRate
+    override fun sampleRate(): Int = if (edge != null || pocket != null) 24_000 else checkNotNull(tts).sampleRate
+
+    override fun cancel() { cancelled = true }
 
     override fun close() {
+        pocket?.close()
         tts?.release()
     }
 
@@ -241,6 +269,7 @@ object DesktopWavFile {
 }
 
 interface DesktopSpeechEngine : AutoCloseable {
+    fun cancel() {}
     fun render(text: String, speakerId: Int, speed: Float): FloatArray
     fun sampleRate(): Int
 }

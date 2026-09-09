@@ -3,4 +3,4 @@ HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 if [ -n "${APPIMAGE:-}" ]; then
   export BOOKREADER_APP_DIR="$(CDPATH= cd -- "$(dirname -- "$APPIMAGE")" && pwd)"
 fi
-exec "$HERE/BookReader/bin/BookReader" "$@"
+exec "$HERE/audiobookreader/bin/audiobookreader" "$@"

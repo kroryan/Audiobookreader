@@ -31,7 +31,7 @@ cp "$work_dir/wix-launchers/candle.exe" "$work_dir/wix-launchers/light.exe"
 export BOOKREADER_WIX_REAL_DIR="$(win_path "$BOOKREADER_WIX_DIR")"
 export WINEPATH="$(win_path "$work_dir/wix-launchers");$WINEPATH"
 version="$(sed -n 's/.*packageVersion = "\([^"]*\)".*/\1/p' "$repo_dir/desktop/build.gradle.kts")"
-test -f "$stage_dir/BookReader-launcher.jar"
+test -f "$stage_dir/audiobookreader-launcher.jar"
 printf 'Packaging Windows %s in %s\n' "$version" "$work_dir"
 mkdir -p "$work_dir/app"
 "$wine_bin" "$BOOKREADER_WINDOWS_JDK/bin/jlink.exe" \
@@ -39,8 +39,8 @@ mkdir -p "$work_dir/app"
     --strip-debug --no-header-files --no-man-pages \
     --output "$(win_path "$work_dir/runtime")"
 "$wine_bin" "$BOOKREADER_WINDOWS_JDK/bin/jpackage.exe" \
-    --type app-image --name BookReader --app-version "$version" --vendor BookReader \
-    --input "$(win_path "$stage_dir")" --main-jar BookReader-launcher.jar \
+    --type app-image --name audiobookreader --app-version "$version" --vendor audiobookreader \
+    --input "$(win_path "$stage_dir")" --main-jar audiobookreader-launcher.jar \
     --main-class com.audiobookreader.desktop.MainKt \
     --icon "$(win_path "$repo_dir/assets/bookreader-icon.ico")" \
     --runtime-image "$(win_path "$work_dir/runtime")" \
@@ -48,14 +48,14 @@ mkdir -p "$work_dir/app"
 for format in msi exe; do
     mkdir -p "$output_dir/$format" "$work_dir/output/$format"
     "$wine_bin" "$BOOKREADER_WINDOWS_JDK/bin/jpackage.exe" \
-        --type "$format" --name BookReader --app-version "$version" --vendor BookReader \
+        --type "$format" --name audiobookreader --app-version "$version" --vendor audiobookreader \
         --description 'Read books aloud with downloadable voices' \
         --icon "$(win_path "$repo_dir/assets/bookreader-icon.ico")" \
-        --app-image "$(win_path "$work_dir/app/BookReader")" \
+        --app-image "$(win_path "$work_dir/app/audiobookreader")" \
         --dest "$(win_path "$work_dir/output/$format")" \
-        --win-per-user-install --win-menu --win-menu-group BookReader --win-shortcut \
+        --win-per-user-install --win-menu --win-menu-group audiobookreader --win-shortcut \
         --win-dir-chooser --win-upgrade-uuid 628af63c-4199-4878-acb5-72581a0d727a \
         --temp "$(win_path "$work_dir/$format")" --verbose
-    cp "$work_dir/output/$format/BookReader-$version.$format" "$output_dir/$format/"
+    cp "$work_dir/output/$format/audiobookreader-$version.$format" "$output_dir/$format/"
 done
 printf 'Windows installers: %s/msi and %s/exe\n' "$output_dir" "$output_dir"

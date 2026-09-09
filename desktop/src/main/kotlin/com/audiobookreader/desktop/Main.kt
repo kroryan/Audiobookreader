@@ -32,6 +32,7 @@ import androidx.compose.material.TabRow
 import androidx.compose.material.TextField
 import androidx.compose.material.Divider
 import androidx.compose.material.MaterialTheme
+import androidx.compose.material.Surface
 import androidx.compose.material.Slider
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
@@ -65,7 +66,7 @@ import java.io.FilenameFilter
 import java.util.prefs.Preferences
 
 fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "BookReader") {
+    Window(onCloseRequest = ::exitApplication, title = "audiobookreader") {
         DesktopApp()
     }
 }
@@ -137,12 +138,14 @@ private fun DesktopApp() {
         settings.flush()
     }
 
-    MaterialTheme(colors = if (darkMode) darkColors() else lightColors()) {
+    MaterialTheme(colors = desktopColors(darkMode)) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colors.background,
+            contentColor = MaterialTheme.colors.onBackground) {
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("BookReader", style = MaterialTheme.typography.h4)
+            Text("audiobookreader", style = MaterialTheme.typography.h4)
             Text("Audiobook reader for Linux and Windows")
             TabRow(selectedTabIndex = selectedTab) {
                 listOf("Library", "Models", "Settings").forEachIndexed { index, label ->
@@ -243,6 +246,7 @@ private fun DesktopApp() {
                 )
             }
         }
+        }
         if (filePickerOpen) {
             BookFilePicker(
                 onCancel = { filePickerOpen = false },
@@ -259,7 +263,6 @@ private fun DesktopApp() {
                 },
             )
         }
-    }
     pendingLicenseModel?.let { spec ->
         val restricted = spec.requiresAcceptance
         AlertDialog(
@@ -300,6 +303,7 @@ private fun DesktopApp() {
             },
         )
     }
+    }
 }
 
 @Composable
@@ -317,7 +321,8 @@ private fun BookFilePicker(onCancel: () -> Unit, onFileSelected: (File) -> Unit)
         title = "Open book",
         state = rememberDialogState(width = 860.dp, height = 620.dp),
     ) {
-        MaterialTheme {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colors.background,
+            contentColor = MaterialTheme.colors.onBackground) {
             Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
@@ -401,7 +406,8 @@ private fun ReferenceAudioPicker(onCancel: () -> Unit, onFileSelected: (String) 
         title = "Choose reference WAV",
         state = rememberDialogState(width = 860.dp, height = 620.dp),
     ) {
-        MaterialTheme {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colors.background,
+            contentColor = MaterialTheme.colors.onBackground) {
             Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(

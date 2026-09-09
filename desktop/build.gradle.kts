@@ -47,10 +47,10 @@ compose.desktop {
             isEnabled.set(false)
         }
         nativeDistributions {
-            packageName = "BookReader"
-            packageVersion = "0.1.15"
+            packageName = "audiobookreader"
+            packageVersion = "0.1.16"
             description = "Read books aloud with downloadable local voices"
-            vendor = "BookReader"
+            vendor = "audiobookreader"
             modules("java.desktop", "java.logging", "java.prefs", "jdk.crypto.ec", "jdk.unsupported")
             targetFormats(TargetFormat.Deb, TargetFormat.AppImage, TargetFormat.Msi, TargetFormat.Exe)
             linux {
@@ -59,7 +59,7 @@ compose.desktop {
             windows {
                 iconFile.set(project.file("../assets/bookreader-icon.ico"))
                 perUserInstall = true
-                menuGroup = "BookReader"
+                menuGroup = "audiobookreader"
                 shortcut = true
                 dirChooser = true
                 upgradeUuid = "628af63c-4199-4878-acb5-72581a0d727a"
@@ -85,7 +85,7 @@ val windowsLauncherJar by tasks.registering(Jar::class) {
     dependsOn(tasks.jar, configurations.runtimeClasspath)
     inputs.files(windowsDependencies)
     inputs.property("applicationJar", tasks.jar.flatMap { it.archiveFileName })
-    archiveFileName.set("BookReader-launcher.jar")
+    archiveFileName.set("audiobookreader-launcher.jar")
     destinationDirectory.set(layout.buildDirectory.dir("windows-launcher"))
     doFirst {
         manifest.attributes(
@@ -102,3 +102,51 @@ tasks.register<Sync>("stageWindows") {
     from(windowsDependencies)
     into(layout.buildDirectory.dir("windows-input"))
 }
+
+val pocketResources = layout.buildDirectory.dir("generated/pocketResources")
+val preparePocketRuntime by tasks.registering {
+    inputs.files(configurations.runtimeClasspath)
+    outputs.dir(layout.buildDirectory.dir("pocket-ort"))
+    doLast {
+        val nativeJar = configurations.runtimeClasspath.get().files.single {
+            it.name == "sherpa-onnx-native-lib-linux-x64-1.13.7.jar"
+        }
+        copy {
+            from(zipTree(nativeJar)) { include("**/libonnxruntime.so"); eachFile { path = name }; includeEmptyDirs = false }
+            into(layout.buildDirectory.dir("pocket-ort"))
+        }
+    }
+}
+val configurePocketRuntime by tasks.registering(Exec::class) {
+    dependsOn(preparePocketRuntime)
+    val nativeBuild = layout.buildDirectory.dir("pocket-native")
+    inputs.file("src/main/cpp/CMakeLists.txt")
+    outputs.file(nativeBuild.map { it.file("CMakeCache.txt") })
+    environment("JAVA_HOME", javaToolchains.launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }.get().metadata.installationPath.asFile)
+    commandLine("cmake", "-S", file("src/main/cpp"), "-B", nativeBuild.get().asFile,
+        "-DCMAKE_BUILD_TYPE=Release", "-DORT_LIBRARY=${layout.buildDirectory.get()}/pocket-ort/libonnxruntime.so")
+    doFirst {
+        val cached = rootProject.file("app/.cxx/RelWithDebInfo").walkTopDown()
+            .maxDepth(4).firstOrNull { it.name == "sentencepiece-src" && File(it, "CMakeLists.txt").isFile }?.parentFile
+        if (cached != null) args("-DFETCHCONTENT_SOURCE_DIR_SENTENCEPIECE=${cached}/sentencepiece-src",
+            "-DFETCHCONTENT_SOURCE_DIR_DR_LIBS=${cached}/dr_libs-src")
+    }
+}
+val buildPocketRuntime by tasks.registering(Exec::class) {
+    dependsOn(configurePocketRuntime)
+    inputs.files(rootProject.file("app/src/main/cpp/vendor/PocketTTS.cpp/pocket_tts.cpp"),
+        rootProject.file("app/src/main/cpp/jni_bridge.cpp"))
+    outputs.file(layout.buildDirectory.file("pocket-native/libpockettts_jni.so"))
+    commandLine("cmake", "--build", layout.buildDirectory.dir("pocket-native").get().asFile,
+        "--target", "pockettts_jni", "-j4")
+}
+val packagePocketRuntime by tasks.registering(Sync::class) {
+    dependsOn(buildPocketRuntime)
+    from(layout.buildDirectory.file("pocket-native/libpockettts_jni.so"))
+    from(layout.buildDirectory.file("pocket-ort/libonnxruntime.so"))
+    into(pocketResources.map { it.dir("pocket/linux-x64") })
+}
+sourceSets.main { resources.srcDir(pocketResources) }
+tasks.processResources { dependsOn(packagePocketRuntime) }
