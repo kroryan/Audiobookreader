@@ -278,7 +278,7 @@ class PlaybackService : MediaSessionService() {
                 .setAction(ACTION_APPEND)
                 .putExtra(EXTRA_PATHS, files.toTypedArray())
                 .putExtra(EXTRA_BOOK_ID, bookId)
-            ContextCompat.startForegroundService(context, intent)
+            if (running) context.startService(intent) else ContextCompat.startForegroundService(context, intent)
         }
 
         fun stop(context: Context) {

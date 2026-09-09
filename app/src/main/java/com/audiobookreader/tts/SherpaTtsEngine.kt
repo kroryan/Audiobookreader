@@ -23,6 +23,7 @@ class SherpaTtsEngine(
     private val referenceSampleRate: Int = 0,
     private val referenceText: String? = null,
     private val referenceAudioPath: String = "",
+    private val numThreads: Int = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
 ) : AutoCloseable {
     private val nativePocket = if (spec.family == ModelFamily.POCKET && spec.remoteFiles.isNotEmpty()) {
         NativePocketTts(
@@ -31,7 +32,7 @@ class SherpaTtsEngine(
             precision = "int8",
             temperature = 0.7f,
             lsdSteps = 1,
-            threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
+            threads = 2,
         )
     } else null
     private val tts: OfflineTts? = if (nativePocket == null) OfflineTts(config = createConfig()) else null
@@ -104,7 +105,7 @@ class SherpaTtsEngine(
                     // It is required to select Spanish, French, etc. correctly.
                     lang = ModelCatalog.kokoroLanguage(speakerId),
                 ),
-                numThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
+                numThreads = numThreads,
                 debug = false,
                 provider = "cpu",
             )
@@ -118,7 +119,7 @@ class SherpaTtsEngine(
                     vocabJson = find("vocab.json").absolutePath,
                     tokenScoresJson = find("token_scores.json").absolutePath,
                 ),
-                numThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
+                numThreads = numThreads,
                 debug = false,
                 provider = "cpu",
             )
@@ -131,7 +132,7 @@ class SherpaTtsEngine(
                     dataDir = dataDir,
                     lexicon = find("lexicon.txt").absolutePath,
                 ),
-                numThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
+                numThreads = numThreads,
                 debug = false,
                 provider = "cpu",
             )
@@ -145,7 +146,7 @@ class SherpaTtsEngine(
                     unicodeIndexer = find("unicode_indexer.bin").absolutePath,
                     voiceStyle = find("voice.bin").absolutePath,
                 ),
-                numThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
+                numThreads = numThreads,
                 debug = false,
                 provider = "cpu",
             )
@@ -161,7 +162,7 @@ class SherpaTtsEngine(
                     noiseScale = 0.667f,
                     noiseScaleW = 0.8f,
                 ),
-                numThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
+                numThreads = numThreads,
                 debug = false,
                 provider = "cpu",
             )

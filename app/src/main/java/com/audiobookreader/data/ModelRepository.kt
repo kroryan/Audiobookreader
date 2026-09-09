@@ -46,6 +46,40 @@ class ModelRepository(context: Context) {
         return validateInstallation(directory(spec), spec)
     }
 
+    /** Deletes only the downloaded model package. Books, progress and generated audio live elsewhere. */
+    fun delete(spec: TtsModelSpec): Long {
+        require(spec.family != ModelFamily.EDGE) { "Edge TTS no guarda un modelo en el dispositivo" }
+        val target = rootDir(spec).canonicalFile
+        check(target.parentFile == root.canonicalFile) { "Ruta de modelo no válida" }
+        var bytes = if (target.isDirectory) {
+            target.walkTopDown().filter(File::isFile).sumOf(File::length)
+        } else 0L
+        if (target.exists()) check(target.deleteRecursively()) { "No se pudo eliminar el modelo" }
+        listOf("${spec.storageId}.part", "${spec.storageId}.installing", "${spec.storageId}.backup")
+            .map { File(root, it) }
+            .filter { it.canonicalFile.parentFile == root.canonicalFile }
+            .forEach(File::deleteRecursively)
+        if (spec.family == ModelFamily.POCKET) {
+            val voiceIds = ModelCatalog.pocketVoices.filter { it.language == spec.language }.map { it.id }.toSet()
+            File(root, "pocket-voices").listFiles().orEmpty()
+                .filter { file -> voiceIds.any { id -> file.name == id || file.name.startsWith("$id.") || file.name.startsWith(".$id.") } }
+                .forEach { file -> bytes += file.length(); file.deleteRecursively() }
+        }
+        removeImportedMetadata(spec.id)
+        return bytes
+    }
+
+    private fun removeImportedMetadata(id: String) {
+        val existing = runCatching { JSONArray(metadata.getString(KEY_IMPORTED_MODELS, "[]")) }
+            .getOrElse { JSONArray() }
+        val retained = JSONArray()
+        for (index in 0 until existing.length()) {
+            val item = existing.optJSONObject(index) ?: continue
+            if (item.optString("id") != id) retained.put(item)
+        }
+        metadata.edit().putString(KEY_IMPORTED_MODELS, retained.toString()).apply()
+    }
+
     private fun validateInstallation(directory: File, spec: TtsModelSpec): Boolean {
         fun validFile(name: String) = File(directory, name).let { it.isFile && it.length() > 0L }
         if (spec.modelName.isNotBlank() && !validFile(spec.modelName)) return false

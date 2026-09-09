@@ -32,6 +32,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.cancelAndJoin
@@ -56,10 +57,13 @@ data class ReaderState(
     val currentDurationMs: Long = 0L,
     val installed: Set<String> = emptySet(),
     val downloading: String? = null,
+    val deletingModel: String? = null,
     val downloadProgress: Int = 0,
     val generating: Boolean = false,
     val message: String? = null,
     val appLanguage: AppLanguage = AppLanguage.ENGLISH,
+    val modelLanguageFilter: String = "all",
+    val recentModelIds: List<String> = emptyList(),
 )
 
 class ReaderViewModel(private val appContext: Context) : ViewModel() {
@@ -68,13 +72,25 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     private val progressRepository = ProgressRepository(appContext)
     private val audioCache = AudioCacheRepository(appContext)
     private val edgeVoices = EdgeVoiceRepository(appContext)
+    private val ttsThreadCount = if (
+        appContext.getSystemService(android.app.ActivityManager::class.java).isLowRamDevice
+    ) 2 else Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
     private val settings = appContext.getSharedPreferences("bookreader-settings", Context.MODE_PRIVATE)
     private val initialLanguage = AppLanguage.fromCode(settings.getString(KEY_APP_LANGUAGE, null))
+    private val initialModelLanguage = settings.getString(KEY_MODEL_LANGUAGE, "all").orEmpty().ifBlank { "all" }
+    private val initialRecentModels = settings.getString(KEY_RECENT_MODELS, "").orEmpty()
+        .lineSequence().filter(String::isNotBlank).distinct().take(MAX_RECENT_MODELS).toList()
     private val allModels = ModelCatalog.models + edgeVoices.cachedVoices() + models.importedModels()
     private val initialModel = allModels.firstOrNull {
-        it.id == settings.getString(KEY_SELECTED_MODEL, null)
-    } ?: allModels.first()
-    private val _state = MutableStateFlow(ReaderState(availableModels = allModels, selectedModel = initialModel, appLanguage = initialLanguage))
+        it.id == settings.getString(KEY_SELECTED_MODEL, null) && (it.family == ModelFamily.EDGE || models.isInstalled(it))
+    } ?: allModels.firstOrNull { it.family == ModelFamily.EDGE || models.isInstalled(it) } ?: allModels.first()
+    private val _state = MutableStateFlow(ReaderState(
+        availableModels = allModels,
+        selectedModel = initialModel,
+        appLanguage = initialLanguage,
+        modelLanguageFilter = initialModelLanguage,
+        recentModelIds = initialRecentModels,
+    ))
     val state: StateFlow<ReaderState> = _state.asStateFlow()
     private var generationJob: Job? = null
     private var maintenanceJob: Job? = null
@@ -130,7 +146,12 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         }
         val saved = progressRepository.load(book.id)
         val bookSettings = loadBookTtsSettings(book.id)
-        val model = _state.value.availableModels.firstOrNull { it.id == bookSettings.modelId } ?: _state.value.selectedModel
+        val available = _state.value.availableModels
+        val model = available.firstOrNull {
+            it.id == bookSettings.modelId && (it.family == ModelFamily.EDGE || models.isInstalled(it))
+        } ?: _state.value.selectedModel.takeIf { it.family == ModelFamily.EDGE || models.isInstalled(it) }
+            ?: available.firstOrNull { it.family == ModelFamily.EDGE || models.isInstalled(it) }
+            ?: ModelCatalog.models.first()
         _state.value = _state.value.copy(
             selectedBook = book,
             generating = false,
@@ -148,11 +169,19 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
 
     fun selectModel(spec: TtsModelSpec) {
         val current = _state.value
+        if (spec.family != ModelFamily.EDGE && !models.isInstalled(spec)) {
+            _state.value = current.copy(message = "Descarga primero el modelo seleccionado")
+            return
+        }
         val book = current.selectedBook
-        settings.edit().putString(KEY_SELECTED_MODEL, spec.id).apply()
+        val recentModels = (listOf(spec.id) + current.recentModelIds.filterNot { it == spec.id })
+            .take(MAX_RECENT_MODELS)
+        settings.edit()
+            .putString(KEY_SELECTED_MODEL, spec.id)
+            .putString(KEY_RECENT_MODELS, recentModels.joinToString("\n"))
+            .apply()
         if (book == null) {
-            settings.edit().putString(KEY_SELECTED_MODEL, spec.id).apply()
-            _state.value = current.copy(selectedModel = spec, message = null)
+            _state.value = current.copy(selectedModel = spec, recentModelIds = recentModels, message = null)
         } else {
             if (current.selectedModel.id != spec.id) {
                 val job = generationJob
@@ -169,6 +198,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
             val progress = progressRepository.load(book.id)
             _state.value = current.copy(
                 selectedModel = spec,
+                recentModelIds = recentModels,
                 generating = false,
                 bookTtsSettings = updated,
                 cacheStatus = audioCache.status(book, spec),
@@ -203,6 +233,12 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     fun setAppLanguage(language: AppLanguage) {
         settings.edit().putString(KEY_APP_LANGUAGE, language.code).apply()
         _state.value = _state.value.copy(appLanguage = language)
+    }
+
+    fun setModelLanguageFilter(language: String) {
+        val normalized = if (language == "all") "all" else LanguageCodes.normalize(language)
+        settings.edit().putString(KEY_MODEL_LANGUAGE, normalized).apply()
+        _state.value = _state.value.copy(modelLanguageFilter = normalized)
     }
 
     fun clearSelectedBookCache() {
@@ -368,7 +404,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     }
 
     fun downloadModel(spec: TtsModelSpec) {
-        if (_state.value.downloading != null) return
+        if (_state.value.downloading != null || _state.value.deletingModel != null) return
         viewModelScope.launch {
             _state.value = _state.value.copy(downloading = spec.id, downloadProgress = 0, message = null)
             runCatching { models.download(spec) { progress -> _state.value = _state.value.copy(downloadProgress = progress) } }
@@ -393,6 +429,70 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                 .onFailure { error ->
                     _state.value = _state.value.copy(downloading = null, message = "Error descargando el modelo: ${error.message}")
                 }
+        }
+    }
+
+    fun deleteModel(spec: TtsModelSpec) {
+        val current = _state.value
+        if (spec.family == ModelFamily.EDGE || current.downloading != null || current.deletingModel != null) return
+        val affectsSelectedModel = current.selectedModel.storageId == spec.storageId
+        val activeGeneration = if (affectsSelectedModel) generationJob else null
+        activeGeneration?.cancel()
+        if (affectsSelectedModel) PlaybackService.stop(appContext)
+        _state.value = current.copy(
+            deletingModel = spec.storageId,
+            generating = if (affectsSelectedModel) false else current.generating,
+            message = null,
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                activeGeneration?.join()
+                if (affectsSelectedModel) audioMutex.withLock { models.delete(spec) } else models.delete(spec)
+            }.onSuccess { deletedBytes ->
+                withContext(Dispatchers.Main) {
+                    val before = _state.value
+                    val available = (ModelCatalog.models +
+                        before.availableModels.filter { it.family == ModelFamily.EDGE } +
+                        models.importedModels()).distinctBy { it.id }
+                    val installed = available.filter(models::isInstalled).map { it.id }.toSet()
+                    val retainedRecent = before.recentModelIds.filter { id ->
+                        before.availableModels.firstOrNull { it.id == id }?.storageId != spec.storageId
+                    }
+                    val fallback = if (affectsSelectedModel) {
+                        available.filter { it.id in installed }.minByOrNull { retainedRecent.indexOf(it.id).let { rank -> if (rank < 0) Int.MAX_VALUE else rank } }
+                            ?: available.filter { it.family == ModelFamily.EDGE }.minByOrNull { retainedRecent.indexOf(it.id).let { rank -> if (rank < 0) Int.MAX_VALUE else rank } }
+                            ?: ModelCatalog.models.first()
+                    } else before.selectedModel
+                    val book = before.selectedBook
+                    val updatedBookSettings = if (book != null && affectsSelectedModel) {
+                        val speaker = settings.getInt("book.${book.id}.speaker.${fallback.id}",
+                            settings.getInt("speaker.${fallback.id}", 0)).coerceIn(0, speakerLimit(fallback))
+                        before.bookTtsSettings.copy(modelId = fallback.id, speakerId = speaker).also {
+                            saveBookTtsSettings(book.id, it)
+                        }
+                    } else before.bookTtsSettings
+                    if (affectsSelectedModel) settings.edit().putString(KEY_SELECTED_MODEL, fallback.id).apply()
+                    settings.edit().putString(KEY_RECENT_MODELS, retainedRecent.joinToString("\n")).apply()
+                    _state.value = before.copy(
+                        availableModels = available,
+                        installed = installed,
+                        selectedModel = fallback,
+                        bookTtsSettings = updatedBookSettings,
+                        deletingModel = null,
+                        recentModelIds = retainedRecent,
+                        cacheStatus = book?.let { audioCache.status(it, fallback) },
+                        readyChunks = book?.let { audioCache.readyChunks(it.id, fallback.id) } ?: emptySet(),
+                        message = "Modelo eliminado · ${formatBytes(deletedBytes)} liberados",
+                    )
+                }
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) {
+                    _state.value = _state.value.copy(
+                        deletingModel = null,
+                        message = "No se pudo eliminar el modelo: ${error.message}",
+                    )
+                }
+            }
         }
     }
 
@@ -493,6 +593,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                                         referenceSampleRate = reference?.sampleRate ?: 0,
                                         referenceText = ttsSettings.referenceText.takeIf(String::isNotBlank),
                                         referenceAudioPath = referencePath,
+                                        numThreads = ttsThreadCount,
                                     )
                                 }
                                 renderChunk(cache, chunk, index, checkNotNull(engine), ttsSettings, spec)
@@ -566,19 +667,34 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     ): File {
         currentCoroutineContext().ensureActive()
         val output = File(cache, "${chunk.first}-$index.mp3")
-        if (!output.exists()) {
+        if (!runCatching { AudioFile.durationMs(output) > 0L }.getOrDefault(false)) {
             val temporary = File(cache, ".${chunk.first}-$index.mp3.part")
             temporary.delete()
             check(audioCache.canWriteMore(1024L * 1024L)) {
                 "La caché de audio ha alcanzado 512 MB. Límpiala para continuar."
             }
-            edgeVoices.client().synthesizeToFile(
-                text = chunk.second,
-                voice = spec.edgeVoice,
-                language = spec.language,
-                speed = ttsSettings.speed,
-                output = temporary,
-            )
+            var failure: Throwable? = null
+            for (attempt in 0..1) {
+                try {
+                    edgeVoices.client().synthesizeToFile(
+                        text = chunk.second,
+                        voice = spec.edgeVoice,
+                        language = spec.language,
+                        speed = ttsSettings.speed,
+                        output = temporary,
+                    )
+                    failure = null
+                    break
+                } catch (cancelled: CancellationException) {
+                    temporary.delete()
+                    throw cancelled
+                } catch (error: Throwable) {
+                    failure = error
+                    temporary.delete()
+                    if (attempt == 0) delay(350)
+                }
+            }
+            if (failure != null) throw failure
             check(temporary.length() > 44L) { "Edge TTS devolvió un archivo vacío" }
             currentCoroutineContext().ensureActive()
             check(audioCache.canWriteMore(temporary.length())) {
@@ -608,14 +724,19 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         var startPositionMs = if (saved.itemIndex >= chunks.size) 0L else saved.positionMs.coerceAtLeast(0L)
         if (startFrom != null) startPositionMs = 0L
         val generationStart = start
+        val startWasAlreadyCached = start in audioCache.readyChunks(book.id, spec.id)
+        var preparedDurationMs = 0L
         var initialEnd = chunks.size
         for (index in generationStart until chunks.size) {
             currentCoroutineContext().ensureActive()
             val file = render(chunks[index], index)
             currentCoroutineContext().ensureActive()
             initialFiles += file.absolutePath
+            preparedDurationMs += audioDurationMs(file)
             initialEnd = index + 1
-            break
+            val preparedCount = index - generationStart + 1
+            if (startWasAlreadyCached || preparedCount >= INITIAL_BUFFER_CHUNKS ||
+                (preparedCount >= 2 && preparedDurationMs >= INITIAL_BUFFER_DURATION_MS)) break
         }
         val initialLocalStart = start - generationStart
         check(initialFiles.size > initialLocalStart) { "No se pudo preparar el punto seleccionado del libro" }
@@ -652,10 +773,14 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         }
         for (index in initialEnd until chunks.size) {
             currentCoroutineContext().ensureActive()
+            while (index > ((PlaybackService.currentProgress(book.id)?.itemIndex ?: start) + LOOK_AHEAD_CHUNKS)) {
+                delay(BUFFER_CHECK_INTERVAL_MS)
+                currentCoroutineContext().ensureActive()
+            }
             val file = render(chunks[index], index)
             currentCoroutineContext().ensureActive()
             PlaybackService.append(appContext, listOf(file.absolutePath), book.id)
-            withContext(Dispatchers.Main) {
+            if ((index - initialEnd) % STATE_REFRESH_CHUNKS == 0) withContext(Dispatchers.Main) {
                 _state.value = _state.value.copy(
                     cacheStatus = audioCache.status(book, spec),
                     readyChunks = audioCache.readyChunks(book.id, spec.id),
@@ -680,7 +805,10 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         viewModelScope.launch {
             val downloaded = edgeVoices.load()
             val available = (ModelCatalog.models + downloaded + models.importedModels()).distinctBy { it.id }
-            val selected = available.firstOrNull { it.id == _state.value.selectedModel.id } ?: _state.value.selectedModel
+            val selected = available.firstOrNull {
+                it.id == _state.value.selectedModel.id && (it.family == ModelFamily.EDGE || models.isInstalled(it))
+            } ?: available.firstOrNull { it.family == ModelFamily.EDGE || models.isInstalled(it) }
+                ?: _state.value.selectedModel
             _state.value = _state.value.copy(
                 availableModels = available,
                 selectedModel = selected,
@@ -697,7 +825,12 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
                 val selected = restored.first()
                 val saved = progressRepository.load(selected.id)
                 val bookSettings = loadBookTtsSettings(selected.id)
-                val model = _state.value.availableModels.firstOrNull { it.id == bookSettings.modelId } ?: _state.value.selectedModel
+                val available = _state.value.availableModels
+                val model = available.firstOrNull {
+                    it.id == bookSettings.modelId && (it.family == ModelFamily.EDGE || models.isInstalled(it))
+                } ?: _state.value.selectedModel.takeIf { it.family == ModelFamily.EDGE || models.isInstalled(it) }
+                    ?: available.firstOrNull { it.family == ModelFamily.EDGE || models.isInstalled(it) }
+                    ?: ModelCatalog.models.first()
                 withContext(Dispatchers.Main) {
                     _state.value = _state.value.copy(
                         books = restored,
@@ -853,11 +986,25 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         else -> 31
     }
 
+    private fun formatBytes(bytes: Long): String = when {
+        bytes >= 1024L * 1024L * 1024L -> "%.2f GB".format(bytes.toDouble() / (1024L * 1024L * 1024L))
+        bytes >= 1024L * 1024L -> "%.1f MB".format(bytes.toDouble() / (1024L * 1024L))
+        else -> "${bytes / 1024L} KB"
+    }
+
     companion object {
         private const val END_TOLERANCE_MS = 500L
+        private const val INITIAL_BUFFER_CHUNKS = 3
+        private const val INITIAL_BUFFER_DURATION_MS = 60_000L
+        private const val LOOK_AHEAD_CHUNKS = 10
+        private const val BUFFER_CHECK_INTERVAL_MS = 500L
+        private const val STATE_REFRESH_CHUNKS = 3
         private const val IntentFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
         private const val KEY_SELECTED_MODEL = "selected_model"
         private const val KEY_APP_LANGUAGE = "app_language"
+        private const val KEY_MODEL_LANGUAGE = "model_language_filter"
+        private const val KEY_RECENT_MODELS = "recent_models"
+        private const val MAX_RECENT_MODELS = 100
         private const val KEY_LIBRARY_URIS = "library_uris"
         fun factory(context: Context) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")

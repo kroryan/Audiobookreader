@@ -19,6 +19,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -37,12 +41,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -55,11 +60,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -71,6 +80,9 @@ import com.audiobookreader.data.PocketVoice
 import com.audiobookreader.data.TextChunker
 import com.audiobookreader.data.TtsModelSpec
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 @Composable
 fun AudiobookReaderApp(
@@ -187,7 +199,9 @@ private fun BookCard(book: Book, state: ReaderState, viewModel: ReaderViewModel,
 
 @Composable
 private fun BookCover(book: Book, modifier: Modifier) {
-    val bitmap by produceState<Bitmap?>(initialValue = null, book.coverPath) { value = book.coverPath?.let(BitmapFactory::decodeFile) }
+    val bitmap by produceState<Bitmap?>(initialValue = null, book.coverPath) {
+        value = withContext(Dispatchers.IO) { book.coverPath?.let(::decodeCover) }
+    }
     if (bitmap != null) {
         androidx.compose.foundation.Image(bitmap!!.asImageBitmap(), contentDescription = book.title, modifier = modifier, contentScale = ContentScale.Crop)
     } else {
@@ -195,26 +209,66 @@ private fun BookCover(book: Book, modifier: Modifier) {
     }
 }
 
+private fun decodeCover(path: String): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sampleSize = 1
+    while (bounds.outWidth / sampleSize > 900 || bounds.outHeight / sampleSize > 1200) sampleSize *= 2
+    return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply {
+        inSampleSize = sampleSize
+        inPreferredConfig = Bitmap.Config.RGB_565
+    })
+}
+
 @Composable
 private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderViewModel, strings: UiStrings, onBack: () -> Unit) {
     val chunks = remember(book.id) { book.chapters.flatMap { chapter -> TextChunker.split(chapter.text).map { Triple(chapter.id, chapter.title, it) } } }
     val listState = rememberLazyListState()
+    val showScrollToTop by remember { derivedStateOf { listState.firstVisibleItemIndex > 4 } }
     val scrollScope = rememberCoroutineScope()
     val activeIndex = state.progress?.itemIndex ?: -1
     val chunksStartIndex = 2 + if (state.bookmarks.isNotEmpty()) 1 else 0
     var modelMenuExpanded by remember { mutableStateOf(false) }
+    var voiceLanguageMenuExpanded by remember { mutableStateOf(false) }
     var voiceSettingsExpanded by rememberSaveable(book.id) { mutableStateOf(false) }
+    var voiceLanguage by rememberSaveable(book.id) { mutableStateOf(preferredVoiceLanguage(state)) }
     var speed by remember(book.id) { mutableFloatStateOf(state.bookTtsSettings.speed) }
+    var speedText by rememberSaveable(book.id) { mutableStateOf("%.2f".format(state.bookTtsSettings.speed)) }
     var referenceText by remember(book.id) { mutableStateOf(state.bookTtsSettings.referenceText) }
     var seekFraction by remember { mutableFloatStateOf(0f) }
     var seeking by remember { mutableStateOf(false) }
     val referencePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::importReferenceAudio)
     }
+    val selectableVoiceModels = state.availableModels.filter {
+        it.family == ModelFamily.EDGE || it.id in state.installed
+    }
+    val voiceLanguages = buildSet {
+        selectableVoiceModels.mapTo(this) { it.language }
+        if (selectableVoiceModels.any { it.family == ModelFamily.KOKORO && it.id in state.installed }) {
+            ModelCatalog.kokoroVoices.mapTo(this) { it.language }
+        }
+    }.filter { it != "all" }.sortedBy(strings::languageLabel)
+    val localVoiceModels = selectableVoiceModels.filter {
+        it.family != ModelFamily.EDGE && (it.language == voiceLanguage || it.language == "all")
+    }.sortedWith(compareBy<TtsModelSpec> { recentModelRank(state, it.id) }
+        .thenBy { strings.languageLabel(it.language) }.thenBy { it.family.ordinal }.thenBy { it.name })
+    val onlineVoiceModels = selectableVoiceModels.filter {
+        it.family == ModelFamily.EDGE && it.language == voiceLanguage
+    }.sortedWith(compareBy<TtsModelSpec> { recentModelRank(state, it.id) }.thenBy { it.name })
+    LaunchedEffect(state.selectedModel.id) {
+        val language = preferredVoiceLanguage(state)
+        if (language != "all") voiceLanguage = language
+    }
     LaunchedEffect(state.progress?.positionMs, state.currentDurationMs, seeking) {
         if (!seeking && state.currentDurationMs > 0L) {
             seekFraction = ((state.progress?.positionMs ?: 0L).toFloat() / state.currentDurationMs.toFloat()).coerceIn(0f, 1f)
         }
+    }
+    LaunchedEffect(state.bookTtsSettings.speed) {
+        speed = state.bookTtsSettings.speed
+        speedText = "%.2f".format(state.bookTtsSettings.speed)
     }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -245,25 +299,115 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(strings.voice, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            if (state.appLanguage == AppLanguage.SPANISH) "Idioma del modelo o voz" else "Model or voice language",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        Box {
+                            OutlinedButton(onClick = { voiceLanguageMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text(strings.languageLabel(voiceLanguage))
+                            }
+                            DropdownMenu(expanded = voiceLanguageMenuExpanded, onDismissRequest = { voiceLanguageMenuExpanded = false }) {
+                                voiceLanguages.forEach { code ->
+                                    DropdownMenuItem(
+                                        text = { Text(strings.languageLabel(code)) },
+                                        onClick = { voiceLanguage = code; voiceLanguageMenuExpanded = false },
+                                    )
+                                }
+                            }
+                        }
                         Box {
                             Button(onClick = { modelMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) { Text(state.selectedModel.name, maxLines = 1) }
                             DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
-                                state.availableModels.filter { it.family == ModelFamily.EDGE || it.id == state.selectedModel.id || state.installed.contains(it.id) }
-                                    .forEach { model ->
-                                        DropdownMenuItem(
-                                            text = { Text(model.name) },
-                                            onClick = { viewModel.selectModel(model); modelMenuExpanded = false },
-                                        )
-                                    }
+                                DropdownMenuItem(
+                                    text = { Text(if (state.appLanguage == AppLanguage.SPANISH) "LOCAL · DESCARGADOS" else "LOCAL · DOWNLOADED", fontWeight = FontWeight.Bold) },
+                                    onClick = {}, enabled = false,
+                                )
+                                if (localVoiceModels.isEmpty()) {
+                                    DropdownMenuItem(
+                                        text = { Text(if (state.appLanguage == AppLanguage.SPANISH) "No hay modelos locales descargados para este idioma" else "No downloaded local models for this language") },
+                                        onClick = {}, enabled = false,
+                                    )
+                                }
+                                localVoiceModels.forEach { model ->
+                                    DropdownMenuItem(
+                                        text = { Text("${model.family.label()} · ${model.name}") },
+                                        onClick = {
+                                            viewModel.selectModel(model)
+                                            if (model.family == ModelFamily.KOKORO) {
+                                                ModelCatalog.kokoroVoices.firstOrNull { it.language == voiceLanguage && it.available }
+                                                    ?.let { viewModel.setBookSpeakerId(it.speakerId) }
+                                            }
+                                            modelMenuExpanded = false
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("ONLINE · EDGE TTS", fontWeight = FontWeight.Bold) },
+                                    onClick = {}, enabled = false,
+                                )
+                                if (onlineVoiceModels.isEmpty()) {
+                                    DropdownMenuItem(
+                                        text = { Text(if (state.appLanguage == AppLanguage.SPANISH) "No hay voces online para este idioma" else "No online voices for this language") },
+                                        onClick = {}, enabled = false,
+                                    )
+                                }
+                                onlineVoiceModels.forEach { model ->
+                                    DropdownMenuItem(
+                                        text = { Text(model.name) },
+                                        onClick = { viewModel.selectModel(model); modelMenuExpanded = false },
+                                    )
+                                }
                             }
                         }
                         Text("${strings.speed}: ${"%.2f".format(speed)}x", style = MaterialTheme.typography.labelLarge)
-                        Slider(
-                            value = speed,
-                            onValueChange = { speed = it },
-                            onValueChangeFinished = { viewModel.setBookSpeed(speed) },
-                            valueRange = 0.5f..2.5f,
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Slider(
+                                value = speed,
+                                onValueChange = {
+                                    speed = (it * 20f).roundToInt() / 20f
+                                    speedText = "%.2f".format(speed)
+                                },
+                                onValueChangeFinished = { viewModel.setBookSpeed(speed) },
+                                valueRange = 0.5f..2.5f,
+                                steps = 39,
+                                modifier = Modifier.weight(1f),
+                            )
+                            OutlinedTextField(
+                                value = speedText,
+                                onValueChange = { value ->
+                                    if (value.length <= 4 && value.matches(Regex("[0-9]?[.,]?[0-9]{0,2}"))) {
+                                        speedText = value
+                                        value.replace(',', '.').toFloatOrNull()?.takeIf { it in 0.5f..2.5f }?.let { speed = it }
+                                    }
+                                },
+                                label = { Text("x") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = {
+                                    speedText.replace(',', '.').toFloatOrNull()?.coerceIn(0.5f, 2.5f)?.let {
+                                        speed = it
+                                        speedText = "%.2f".format(it)
+                                        viewModel.setBookSpeed(it)
+                                    }
+                                }),
+                                modifier = Modifier.width(92.dp),
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                speedText.replace(',', '.').toFloatOrNull()?.coerceIn(0.5f, 2.5f)?.let {
+                                    speed = it
+                                    speedText = "%.2f".format(it)
+                                    viewModel.setBookSpeed(it)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(strings.applyVoiceSettings) }
                         if (state.selectedModel.family == ModelFamily.KOKORO) {
                             KokoroVoicePicker(state, viewModel, strings)
                         } else if (state.selectedModel.family == ModelFamily.SUPERTONIC) {
@@ -438,12 +582,20 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
             }
         }
         }
-        if (listState.firstVisibleItemIndex > 4) {
-            SmallFloatingActionButton(
+        if (showScrollToTop) {
+            FloatingActionButton(
                 onClick = { scrollScope.launch { listState.animateScrollToItem(0) } },
-                modifier = Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 12.dp),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(start = 16.dp, top = 10.dp)
+                    .size(56.dp)
+                    .shadow(8.dp, MaterialTheme.shapes.large)
+                    .zIndex(2f),
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
             ) {
-                Text("↑", fontSize = 22.sp)
+                Text("↑", fontSize = 28.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -452,24 +604,90 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
 @Composable
 private fun ModelScreen(state: ReaderState, viewModel: ReaderViewModel, strings: UiStrings) {
     var expanded by remember { mutableStateOf(false) }
-    var language by rememberSaveable { mutableStateOf("all") }
+    var query by rememberSaveable { mutableStateOf("") }
+    var installedOnly by rememberSaveable { mutableStateOf(false) }
+    var localExpanded by rememberSaveable { mutableStateOf(true) }
+    var onlineExpanded by rememberSaveable { mutableStateOf(true) }
     var pendingLicenseModel by remember { mutableStateOf<TtsModelSpec?>(null) }
+    var pendingDeleteModel by remember { mutableStateOf<TtsModelSpec?>(null) }
     val languages = state.availableModels.map { it.language }.filter { it != "all" }.distinct().sorted()
-    val visibleModels = state.availableModels.filter { language == "all" || it.language == language || it.language == "all" }
+    val normalizedQuery = query.trim().lowercase()
+    val visibleModels = state.availableModels.asSequence()
+        .filter { state.modelLanguageFilter == "all" || it.language == state.modelLanguageFilter || it.language == "all" }
+        .filter { !installedOnly || it.family == ModelFamily.EDGE || it.id in state.installed }
+        .filter { normalizedQuery.isBlank() || listOf(it.name, it.family.label(), it.language, it.edgeVoice)
+            .any { value -> normalizedQuery in value.lowercase() } }
+        .sortedWith(compareByDescending<TtsModelSpec> { it.id == state.selectedModel.id }
+            .thenByDescending { it.id in state.installed }
+            .thenBy { recentModelRank(state, it.id) }
+            .thenBy { it.family.ordinal }
+            .thenBy { it.name })
+        .toList()
+    val localModels = visibleModels.filter { it.family != ModelFamily.EDGE }
+    val onlineModels = visibleModels.filter { it.family == ModelFamily.EDGE }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text(strings.models, style = MaterialTheme.typography.headlineMedium)
             Text(strings.modelsSubtitle)
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text(if (state.appLanguage == AppLanguage.SPANISH) "Buscar modelo o voz" else "Search models or voices") },
+                singleLine = true,
+                trailingIcon = {
+                    if (query.isNotEmpty()) TextButton(onClick = { query = "" }) { Text("×", fontSize = 22.sp) }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
             Box {
-                Button(onClick = { expanded = true }) { Text(strings.languageLabel(language)) }
+                Button(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("${if (state.appLanguage == AppLanguage.SPANISH) "Idioma" else "Language"}: ${strings.languageLabel(state.modelLanguageFilter)}")
+                }
                 DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    DropdownMenuItem(text = { Text(strings.allLanguages) }, onClick = { language = "all"; expanded = false })
-                    languages.forEach { code -> DropdownMenuItem(text = { Text(strings.languageLabel(code)) }, onClick = { language = code; expanded = false }) }
+                    DropdownMenuItem(text = { Text(strings.allLanguages) }, onClick = { viewModel.setModelLanguageFilter("all"); expanded = false })
+                    languages.forEach { code -> DropdownMenuItem(text = { Text(strings.languageLabel(code)) }, onClick = { viewModel.setModelLanguageFilter(code); expanded = false }) }
                 }
             }
+            OutlinedButton(onClick = { installedOnly = !installedOnly }) {
+                Text((if (installedOnly) "✓ " else "") + if (state.appLanguage == AppLanguage.SPANISH) "Descargados y disponibles" else "Downloaded and available")
+            }
         }
-        items(visibleModels, key = { it.id }) { spec ->
-            ModelCard(spec, state, viewModel, strings) { pendingLicenseModel = it }
+        item(key = "local-heading") {
+            ModelSectionHeader(
+                title = if (state.appLanguage == AppLanguage.SPANISH) "Modelos locales" else "Local models",
+                subtitle = if (state.appLanguage == AppLanguage.SPANISH) "Se descargan una vez y funcionan sin conexión" else "Download once and use offline",
+                count = localModels.size,
+                expanded = localExpanded,
+                onToggle = { localExpanded = !localExpanded },
+            )
+        }
+        if (localExpanded) {
+            items(localModels, key = { "local-${it.id}" }) { spec ->
+                ModelCard(spec, state, viewModel, strings,
+                    onLicenseRequired = { pendingLicenseModel = it },
+                    onDeleteRequested = { pendingDeleteModel = it })
+            }
+        }
+        item(key = "online-heading") {
+            ModelSectionHeader(
+                title = if (state.appLanguage == AppLanguage.SPANISH) "Voces online" else "Online voices",
+                subtitle = "Edge TTS · ${if (state.appLanguage == AppLanguage.SPANISH) "sin descarga, requiere Internet" else "no download, Internet required"}",
+                count = onlineModels.size,
+                expanded = onlineExpanded,
+                onToggle = { onlineExpanded = !onlineExpanded },
+            )
+        }
+        if (onlineExpanded) {
+            items(onlineModels, key = { "online-${it.id}" }) { spec ->
+                ModelCard(spec, state, viewModel, strings,
+                    onLicenseRequired = { pendingLicenseModel = it },
+                    onDeleteRequested = { pendingDeleteModel = it })
+            }
+        }
+        if (visibleModels.isEmpty()) {
+            item { Text(if (state.appLanguage == AppLanguage.SPANISH) "No hay modelos que coincidan con estos filtros." else "No models match these filters.") }
         }
     }
     pendingLicenseModel?.let { spec ->
@@ -516,6 +734,45 @@ private fun ModelScreen(state: ReaderState, viewModel: ReaderViewModel, strings:
             },
         )
     }
+    pendingDeleteModel?.let { spec ->
+        val spanish = state.appLanguage == AppLanguage.SPANISH
+        AlertDialog(
+            onDismissRequest = { pendingDeleteModel = null },
+            title = { Text(if (spanish) "Eliminar modelo descargado" else "Delete downloaded model") },
+            text = { Text(if (spanish)
+                "Se eliminarán los archivos de ${spec.name}. Si este paquete se comparte entre idiomas o modos de voz, se eliminará para todos ellos. Los libros, el progreso y el audio ya generado se conservarán."
+                else "The files for ${spec.name} will be deleted. If this package is shared by languages or voice modes, it will be removed for all of them. Books, progress, and generated audio will be preserved.") },
+            confirmButton = {
+                Button(onClick = { viewModel.deleteModel(spec); pendingDeleteModel = null }) {
+                    Text(if (spanish) "Eliminar" else "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteModel = null }) {
+                    Text(if (spanish) "Cancelar" else "Cancel")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ModelSectionHeader(
+    title: String,
+    subtitle: String,
+    count: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onToggle)) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("$title ($count)", style = MaterialTheme.typography.titleLarge)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(if (expanded) "▲" else "▼")
+        }
+    }
 }
 
 @Composable
@@ -525,6 +782,7 @@ private fun ModelCard(
     viewModel: ReaderViewModel,
     strings: UiStrings,
     onLicenseRequired: (TtsModelSpec) -> Unit,
+    onDeleteRequested: (TtsModelSpec) -> Unit,
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
@@ -551,16 +809,29 @@ private fun ModelCard(
                 Text("Chinese + English voice cloning · reference WAV and exact transcript required")
             }
             if (spec.experimental) Text(strings.experimental)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 if (state.selectedModel.id == spec.id) Text("${strings.selected}  ")
-                TextButton(onClick = { viewModel.selectModel(spec) }) { Text(strings.use) }
+                TextButton(
+                    onClick = { viewModel.selectModel(spec) },
+                    enabled = spec.family == ModelFamily.EDGE || spec.id in state.installed,
+                ) { Text(strings.use) }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 if (spec.family == ModelFamily.EDGE) {
                     Text("ONLINE", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
-                } else if (state.installed.contains(spec.id)) Text(strings.downloaded)
+                } else if (state.deletingModel == spec.storageId) {
+                    Text(if (state.appLanguage == AppLanguage.SPANISH) "Eliminando…" else "Deleting…")
+                } else if (state.installed.contains(spec.id)) {
+                    Text(strings.downloaded)
+                    TextButton(
+                        onClick = { onDeleteRequested(spec) },
+                        enabled = state.downloading == null && state.deletingModel == null,
+                    ) { Text(if (state.appLanguage == AppLanguage.SPANISH) "Eliminar" else "Delete", color = MaterialTheme.colorScheme.error) }
+                }
                 else if (state.downloading == spec.id) {
                     Text("${state.downloadProgress}% · ${if (state.downloadProgress < 60) "Downloading" else "Extracting / installing"}")
                 }
-                else TextButton(onClick = {
+                else TextButton(enabled = state.deletingModel == null, onClick = {
                     if (spec.requiresAcceptance) onLicenseRequired(spec) else viewModel.downloadModel(spec)
                 }) { Text(strings.download) }
             }
@@ -791,6 +1062,15 @@ private fun formatDuration(milliseconds: Long): String {
     return if (hours > 0L) "%d:%02d:%02d".format(hours, minutes, seconds)
     else "%d:%02d".format(minutes, seconds)
 }
+
+private fun preferredVoiceLanguage(state: ReaderState): String = when (state.selectedModel.family) {
+    ModelFamily.KOKORO -> ModelCatalog.kokoroVoices
+        .firstOrNull { it.speakerId == state.bookTtsSettings.speakerId }?.language ?: state.appLanguage.code
+    else -> state.selectedModel.language.takeUnless { it == "all" } ?: state.appLanguage.code
+}
+
+private fun recentModelRank(state: ReaderState, modelId: String): Int =
+    state.recentModelIds.indexOf(modelId).let { if (it < 0) Int.MAX_VALUE else it }
 
 private fun ModelFamily.label() = when (this) {
     ModelFamily.PIPER -> "Piper/VITS"

@@ -11,7 +11,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import org.json.JSONArray
-import java.io.ByteArrayOutputStream
+import java.io.BufferedOutputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -57,27 +57,31 @@ class EdgeTtsClient {
             .header("User-Agent", USER_AGENT)
             .header("Cookie", "muid=$muid")
             .build()
-        val audio = ByteArrayOutputStream()
+        output.parentFile?.mkdirs()
+        val audio = BufferedOutputStream(output.outputStream(), 64 * 1024)
+        val stateLock = Any()
         var completed = false
-        lateinit var socket: WebSocket
+        var bytesWritten = 0L
+        var socket: WebSocket? = null
 
-        fun finish(error: Throwable?) {
-            if (completed) return
-            completed = true
-            if (error == null) {
+        fun finish(webSocket: WebSocket?, error: Throwable?) {
+            val result = synchronized(stateLock) {
+                if (completed) return
+                completed = true
                 runCatching {
-                    check(audio.size() > 0) { "Edge TTS no devolvió audio" }
-                    output.parentFile?.mkdirs()
-                    output.outputStream().use { audio.writeTo(it) }
-                }.onSuccess {
-                    if (continuation.isActive) continuation.resume(Unit)
-                }.onFailure {
-                    if (continuation.isActive) continuation.resumeWithException(it)
+                    audio.flush()
+                    audio.close()
+                    if (error != null) throw error
+                    check(bytesWritten > 0L) { "Edge TTS no devolvió audio" }
                 }
-            } else if (continuation.isActive) {
-                continuation.resumeWithException(error)
             }
-            socket.close(1000, null)
+            result.onSuccess {
+                if (continuation.isActive) continuation.resume(Unit)
+            }.onFailure {
+                output.delete()
+                if (continuation.isActive) continuation.resumeWithException(it)
+            }
+            webSocket?.close(1000, null)
         }
 
         socket = http.newWebSocket(request, object : WebSocketListener() {
@@ -88,7 +92,7 @@ class EdgeTtsClient {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                if (text.contains("Path:turn.end", ignoreCase = true)) finish(null)
+                if (text.contains("Path:turn.end", ignoreCase = true)) finish(webSocket, null)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -96,21 +100,36 @@ class EdgeTtsClient {
                 if (frame.size < 2) return
                 val headerLength = ((frame[0].toInt() and 0xff) shl 8) or (frame[1].toInt() and 0xff)
                 val audioStart = 2 + headerLength
+                if (audioStart > frame.size) return
                 val header = frame.copyOfRange(2, audioStart.coerceAtMost(frame.size)).toString(Charsets.UTF_8)
                 if (audioStart <= frame.size && header.contains("Content-Type:audio", ignoreCase = true)) {
-                    audio.write(frame, audioStart, frame.size - audioStart)
+                    synchronized(stateLock) {
+                        if (!completed) {
+                            audio.write(frame, audioStart, frame.size - audioStart)
+                            bytesWritten += frame.size - audioStart
+                        }
+                    }
                 }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                finish(t)
+                finish(webSocket, t)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (!completed) finish(IllegalStateException("Edge TTS cerró la conexión antes de terminar"))
+                finish(webSocket, IllegalStateException("Edge TTS cerró la conexión antes de terminar"))
             }
         })
-        continuation.invokeOnCancellation { socket.cancel() }
+        continuation.invokeOnCancellation {
+            socket?.cancel()
+            synchronized(stateLock) {
+                if (!completed) {
+                    completed = true
+                    runCatching { audio.close() }
+                    output.delete()
+                }
+            }
+        }
     }
 
     fun fetchVoices(): List<TtsModelSpec> {
