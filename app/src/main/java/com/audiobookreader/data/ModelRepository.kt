@@ -43,22 +43,22 @@ class ModelRepository(context: Context) {
 
     fun isInstalled(spec: TtsModelSpec): Boolean {
         if (spec.family == ModelFamily.EDGE) return true
-        val rootDir = rootDir(spec)
-        val marker = File(rootDir, INSTALL_MARKER)
-        // The marker is written only after the archive has been fully extracted
-        // and the expected model file has been found. Keep the model-file
-        // fallback so installations made by older app versions remain usable.
-        val installed = (marker.isFile && marker.readText() == spec.storageId) || modelFile(spec) != null
-        if (!installed) return false
+        return validateInstallation(directory(spec), spec)
+    }
+
+    private fun validateInstallation(directory: File, spec: TtsModelSpec): Boolean {
+        fun validFile(name: String) = File(directory, name).let { it.isFile && it.length() > 0L }
+        if (spec.modelName.isNotBlank() && !validFile(spec.modelName)) return false
         if (spec.family == ModelFamily.KOKORO) {
-            // A previous app version installed the 53-speaker package under
-            // the same model ID. Do not report it as installed: the new
-            // package must contain the 54th embedding for em_santa.
-            val voices = File(rootDir, spec.voices)
+            val voices = File(directory, spec.voices)
             if (voices.length() != KOKORO_VOICE_BYTES * KOKORO_VOICE_COUNT) return false
         }
-        return spec.requiredFiles.all { required -> rootDir(spec).walkTopDown().any { it.isFile && it.name == required } } &&
-            (spec.auxiliaryName.isBlank() || rootDir(spec).walkTopDown().any { it.isFile && it.name == spec.auxiliaryName })
+        val additional = listOf(spec.lexicon, spec.ruleFsts, spec.ruleFars, spec.voices, spec.auxiliaryName)
+            .flatMap { it.split(',') }.filter(String::isNotBlank)
+        val needsTokens = spec.family in setOf(ModelFamily.PIPER, ModelFamily.COQUI, ModelFamily.MIMIC3, ModelFamily.KOKORO)
+        return (spec.requiredFiles + additional).all(::validFile) &&
+            (!needsTokens || validFile("tokens.txt")) &&
+            (spec.dataDir.isBlank() || File(directory, "${spec.dataDir}/phontab").isFile)
     }
 
     fun importedModels(): List<TtsModelSpec> = runCatching {
@@ -189,7 +189,7 @@ class ModelRepository(context: Context) {
         connection.connectTimeout = 20_000
         connection.readTimeout = 60_000
         connection.instanceFollowRedirects = true
-        connection.setRequestProperty("User-Agent", "BookReader/0.1")
+        connection.setRequestProperty("User-Agent", "audiobookreader/0.1")
         connection.setRequestProperty("Accept", "application/octet-stream")
         connection.connect()
         try {
@@ -214,7 +214,6 @@ class ModelRepository(context: Context) {
         } finally {
             connection.disconnect()
         }
-        target.deleteRecursively()
         installing.deleteRecursively()
         installing.mkdirs()
         val compressedSize = archive.length()
@@ -264,8 +263,9 @@ class ModelRepository(context: Context) {
         check(spec.requiredFiles.all { required -> installing.walkTopDown().any { it.isFile && it.name == required } }) {
             "El paquete no contiene todos los archivos necesarios"
         }
+        check(validateInstallation(installing, spec)) { "El modelo descargado está incompleto o no es compatible" }
         File(installing, INSTALL_MARKER).writeText(spec.storageId)
-        check(installing.renameTo(target)) { "No se pudo guardar el modelo descargado" }
+        activateInstallation(installing, target)
         progress(100)
     }
 
@@ -281,7 +281,7 @@ class ModelRepository(context: Context) {
         connection.connectTimeout = 20_000
         connection.readTimeout = 60_000
         connection.instanceFollowRedirects = true
-        connection.setRequestProperty("User-Agent", "BookReader/0.1")
+        connection.setRequestProperty("User-Agent", "audiobookreader/0.1")
         try {
             connection.connect()
             check(connection.responseCode in 200..299) { "Descarga de voz fallida: HTTP ${connection.responseCode}" }
@@ -320,16 +320,8 @@ class ModelRepository(context: Context) {
                 File(installing, required).isFile && File(installing, required).length() > 0L
             }) { "La descarga de PocketTTS quedó incompleta" }
             File(installing, INSTALL_MARKER).writeText(spec.storageId)
-            val backup = File(root, "${spec.storageId}.backup")
-            backup.deleteRecursively()
-            if (target.exists()) {
-                check(target.renameTo(backup)) { "No se pudo reservar el modelo anterior" }
-            }
-            if (!installing.renameTo(target)) {
-                backup.renameTo(target)
-                error("No se pudo activar el modelo descargado")
-            }
-            backup.deleteRecursively()
+            check(validateInstallation(installing, spec)) { "El modelo descargado está incompleto" }
+            activateInstallation(installing, target)
             progress(100)
         } catch (error: Throwable) {
             installing.deleteRecursively()
@@ -337,12 +329,23 @@ class ModelRepository(context: Context) {
         }
     }
 
+    private fun activateInstallation(installing: File, target: File) {
+        val backup = File(root, "${target.name}.backup")
+        backup.deleteRecursively()
+        if (target.exists()) check(target.renameTo(backup)) { "No se pudo reservar el modelo anterior" }
+        if (!installing.renameTo(target)) {
+            backup.renameTo(target)
+            error("No se pudo activar el modelo descargado")
+        }
+        backup.deleteRecursively()
+    }
+
     private fun downloadAuxiliary(url: String, target: File, progress: (Long, Long) -> Unit) {
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.connectTimeout = 20_000
         connection.readTimeout = 60_000
         connection.instanceFollowRedirects = true
-        connection.setRequestProperty("User-Agent", "BookReader/0.1")
+        connection.setRequestProperty("User-Agent", "audiobookreader/0.1")
         try {
             connection.connect()
             check(connection.responseCode in 200..299) { "Descarga auxiliar fallida: HTTP ${connection.responseCode}" }

@@ -51,7 +51,7 @@ def sha256(path: Path) -> str:
 
 
 def download(url: str, destination: Path) -> None:
-    request = urllib.request.Request(url, headers={"User-Agent": "BookReader Kokoro builder"})
+    request = urllib.request.Request(url, headers={"User-Agent": "audiobookreader Kokoro builder"})
     with urllib.request.urlopen(request) as response, destination.open("wb") as output:
         shutil.copyfileobj(response, output, length=1024 * 1024)
 

@@ -22,13 +22,18 @@ internal class NativePocketTts(
         check(handle != 0L) { "No se pudo cargar el modelo PocketTTS" }
     }
 
-    fun synthesize(text: String, voicePath: String, sink: AudioSink): Boolean =
-        nativeSynthesize(handle, text, voicePath, sink)
+    @Synchronized
+    fun synthesize(text: String, voicePath: String, sink: AudioSink): Boolean {
+        check(handle != 0L) { "PocketTTS is closed" }
+        return nativeSynthesize(handle, text, voicePath, sink)
+    }
 
+    @Synchronized
     fun stop() {
         if (handle != 0L) nativeStop(handle)
     }
 
+    @Synchronized
     override fun close() {
         if (handle != 0L) {
             nativeDestroy(handle)

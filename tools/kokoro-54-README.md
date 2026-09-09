@@ -44,7 +44,7 @@ Keep the original Sherpa-ONNX and Kokoro license/attribution files when
 redistributing this package. This generated package does not add or replace
 any upstream license. Sources are listed in `manifest.json`.
 
-Generated with `tools/build_kokoro_sherpa_voice_package.py` in the BookReader
+Generated with `tools/build_kokoro_sherpa_voice_package.py` in the audiobookreader
 repository.
 
 ## Detailed integration instructions

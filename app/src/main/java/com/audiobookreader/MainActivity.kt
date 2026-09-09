@@ -5,11 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
-import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,7 +18,7 @@ import com.audiobookreader.playback.PlaybackService
 import com.audiobookreader.ui.theme.BookReaderTheme
 
 class MainActivity : ComponentActivity() {
-    private val readerViewModel by lazy { ReaderViewModel(applicationContext) }
+    private val readerViewModel by viewModels<ReaderViewModel> { ReaderViewModel.factory(applicationContext) }
     private var showBatteryOptimizationPrompt by mutableStateOf(false)
     private val progressReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -53,10 +53,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateBatteryOptimizationPrompt() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            showBatteryOptimizationPrompt = false
-            return
-        }
         val powerManager = getSystemService(PowerManager::class.java)
         val isIgnoring = powerManager?.isIgnoringBatteryOptimizations(packageName) == true
         val wasShown = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -73,16 +69,7 @@ class MainActivity : ComponentActivity() {
 
     private fun openBatteryOptimizationSettings(markPromptSeen: Boolean) {
         if (markPromptSeen) markBatteryPromptSeen()
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-        val requestIntent = Intent(
-            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-            Uri.parse("package:$packageName"),
-        )
-        try {
-            startActivity(requestIntent)
-        } catch (_: Exception) {
-            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-        }
+        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
     }
 
     companion object {
@@ -93,8 +80,9 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         val filter = IntentFilter(PlaybackService.ACTION_PROGRESS)
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(progressReceiver, filter, RECEIVER_NOT_EXPORTED)
-        else @Suppress("DEPRECATION") registerReceiver(progressReceiver, filter)
+        androidx.core.content.ContextCompat.registerReceiver(
+            this, progressReceiver, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
     }
 
     override fun onStop() {

@@ -1,6 +1,7 @@
 package com.audiobookreader.playback
 
 import java.io.DataOutputStream
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
@@ -11,11 +12,12 @@ object WavFile {
     data class Audio(val samples: FloatArray, val sampleRate: Int)
 
     fun write(file: File, samples: FloatArray, sampleRate: Int) {
+        require(sampleRate > 0 && samples.isNotEmpty() && samples.all { it.isFinite() }) { "Audio vacío o inválido" }
         val pcmSize = samples.size * 2
-        DataOutputStream(FileOutputStream(file)).use { out ->
+        DataOutputStream(BufferedOutputStream(FileOutputStream(file), 64 * 1024)).use { out ->
             fun ascii(value: String) = out.writeBytes(value)
             fun leInt(value: Int) = out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(value).array())
-            fun leShort(value: Int) = out.write(ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN).putShort(value.toShort()).array())
+            fun leShort(value: Int) { out.write(value and 0xff); out.write((value ushr 8) and 0xff) }
             ascii("RIFF"); leInt(36 + pcmSize); ascii("WAVE")
             ascii("fmt "); leInt(16); leShort(1); leShort(1); leInt(sampleRate)
             leInt(sampleRate * 2); leShort(2); leShort(16)
@@ -36,6 +38,12 @@ object WavFile {
     fun durationMs(file: File): Long {
         if (file.length() <= 44L) return 0L
         RandomAccessFile(file, "r").use { input ->
+            if (input.readInt() != 0x52494646) return 0L
+            input.seek(8L)
+            if (input.readInt() != 0x57415645) return 0L
+            input.seek(40L)
+            val size = java.lang.Integer.reverseBytes(input.readInt()).toLong() and 0xffffffffL
+            if (size <= 0L || size + 44L != file.length()) return 0L
             input.seek(24L)
             val b0 = input.read()
             val b1 = input.read()
@@ -60,10 +68,12 @@ object WavFile {
             var dataSize = 0L
             while (input.filePointer + 8 <= input.length()) {
                 val id = input.readInt()
-                val size = java.lang.Integer.reverseBytes(input.readInt()).toLong()
+                val size = java.lang.Integer.reverseBytes(input.readInt()).toLong() and 0xffffffffL
                 val chunkStart = input.filePointer
+                require(size <= input.length() - chunkStart) { "El archivo WAV está incompleto" }
                 when (id) {
                     0x666D7420 -> {
+                        require(size >= 16) { "Cabecera WAV inválida" }
                         format = java.lang.Short.reverseBytes(input.readShort()).toInt() and 0xffff
                         channels = java.lang.Short.reverseBytes(input.readShort()).toInt() and 0xffff
                         sampleRate = java.lang.Integer.reverseBytes(input.readInt())
@@ -77,10 +87,13 @@ object WavFile {
                 }
                 input.seek((chunkStart + size + (size and 1L)).coerceAtMost(input.length()))
             }
-            require(format == 1 && channels > 0 && sampleRate > 0 && bits == 16 && dataOffset >= 0) {
+            require(format == 1 && channels in 1..8 && sampleRate in 8000..192000 && bits == 16 && dataOffset >= 0 && dataSize > 0) {
                 "El audio debe ser WAV PCM de 16 bits"
             }
-            val frames = (dataSize / (channels * 2L)).toInt()
+            require(dataSize % (channels * 2L) == 0L) { "El archivo WAV está incompleto" }
+            val frameCount = dataSize / (channels * 2L)
+            require(frameCount <= sampleRate * 30L) { "Selecciona una muestra de voz de entre 3 y 30 segundos" }
+            val frames = frameCount.toInt()
             val samples = FloatArray(frames)
             input.seek(dataOffset)
             repeat(frames) { frame ->

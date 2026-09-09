@@ -380,21 +380,22 @@ vits-piper-zh_CN-chaowen-medium
     }
 
     private fun pocketPresets(languageModel: String, language: String, label: String): TtsModelSpec {
+        val sharedModel = if (language == "fr") languageModel else languageModel.removeSuffix("_24l")
         val files = pocketRequiredFiles.map { file ->
-            TtsRemoteFile(file, "$pocketOnnxBase$languageModel/$file")
+            TtsRemoteFile(file, "$pocketOnnxBase$sharedModel/$file")
         }
         return TtsModelSpec(
             id = "pocket-tts-$languageModel-presets-int8",
-            name = "PocketTTS INT8 · $label · preset voices",
+            name = "PocketTTS INT8 · ${label.removeSuffix(" 24L")} · preset voices",
             family = ModelFamily.POCKET,
             language = language,
             archiveName = "",
             modelName = "",
-            licenseSpdx = "MIT (code) + CC BY 4.0 (model and voice recordings)",
+            licenseSpdx = "MIT (code) + CC BY 4.0 (model); voice-specific recording licenses",
             licenseUrl = "https://huggingface.co/kyutai/tts-voices",
             attribution = "Kyutai Labs; voice recordings from kyutai/tts-voices (check each voice's license)",
             requiresAcceptance = true,
-            storageId = "pocket-tts-$languageModel-int8",
+            storageId = "pocket-tts-$sharedModel-int8",
             requiredFiles = pocketRequiredFiles,
             remoteFiles = files,
             presetVoices = pocketVoices.filter { it.language == language },
@@ -476,7 +477,7 @@ vits-piper-zh_CN-chaowen-medium
         mimic3Dirs.map { vitsModel(it, ModelFamily.MIMIC3) } + listOf(
             // One shared package is used by all Kokoro voices. This package
             // includes the additional Spanish em_santa embedding.
-            TtsModelSpec("kokoro-multi-v1-0", "Kokoro v1.0 · 9 languages · 54 voices", ModelFamily.KOKORO, "all", kokoroSantaArchive, "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors"),
+            TtsModelSpec("kokoro-multi-v1-0", "Kokoro v1.0 Multilingual · 54 voices · Español / English / 中文 + more", ModelFamily.KOKORO, "all", kokoroSantaArchive, "model.onnx", voices = "voices.bin", lexicon = "lexicon-us-en.txt,lexicon-zh.txt", ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst", dataDir = "espeak-ng-data", licenseSpdx = "Apache-2.0", licenseUrl = "https://huggingface.co/hexgrad/Kokoro-82M/blob/main/LICENSE", attribution = "hexgrad Kokoro-82M contributors", requiredFiles = listOf("model.onnx", "voices.bin", "tokens.txt", "lexicon-us-en.txt", "lexicon-zh.txt", "phone-zh.fst", "date-zh.fst", "number-zh.fst")),
         ) + supertonicLanguages.map(::supertonic) + pocketCloneLanguages + pocketPresetLanguages + listOf(zipVoice)
 
 

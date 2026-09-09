@@ -1,6 +1,6 @@
-# BookReader third-party notices
+# audiobookreader third-party notices
 
-BookReader uses Sherpa-ONNX under the Apache License 2.0:
+audiobookreader uses Sherpa-ONNX under the Apache License 2.0:
 https://github.com/k2-fsa/sherpa-onnx/blob/master/LICENSE
 
 The downloadable model packages remain separate from the APK and retain their

@@ -15,7 +15,8 @@ void ptt_free_audio(float*);
 
 struct PocketEngine {
     void* tts = nullptr;
-    std::atomic<void*> stream{nullptr};
+    void* stream = nullptr;
+    std::mutex streamMutex;
     std::mutex synthesisMutex;
 };
 
@@ -57,7 +58,10 @@ Java_com_audiobookreader_tts_NativePocketTts_nativeSynthesize(
     env->ReleaseStringUTFChars(text, textValue);
     env->ReleaseStringUTFChars(voice, voiceValue);
     if (!stream) return JNI_FALSE;
-    engine->stream.store(stream);
+    {
+        std::lock_guard<std::mutex> lock(engine->streamMutex);
+        engine->stream = stream;
+    }
     jclass sinkClass = env->GetObjectClass(sink);
     jmethodID onAudio = env->GetMethodID(sinkClass, "onAudio", "([F)Z");
     bool success = onAudio != nullptr;
@@ -85,7 +89,10 @@ Java_com_audiobookreader_tts_NativePocketTts_nativeSynthesize(
             success = false;
         }
     }
-    engine->stream.store(nullptr);
+    {
+        std::lock_guard<std::mutex> lock(engine->streamMutex);
+        engine->stream = nullptr;
+    }
     ptt_stream_end(stream);
     return success ? JNI_TRUE : JNI_FALSE;
 }
@@ -94,7 +101,8 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_audiobookreader_tts_NativePocketTts_nativeStop(JNIEnv*, jobject, jlong value) {
     auto* engine = engineFrom(value);
     if (engine) {
-        if (void* stream = engine->stream.load()) ptt_stream_cancel(stream);
+        std::lock_guard<std::mutex> lock(engine->streamMutex);
+        if (engine->stream) ptt_stream_cancel(engine->stream);
     }
 }
 
@@ -102,8 +110,14 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_audiobookreader_tts_NativePocketTts_nativeDestroy(JNIEnv*, jobject, jlong value) {
     auto* engine = engineFrom(value);
     if (!engine) return;
-    if (void* stream = engine->stream.load()) ptt_stream_cancel(stream);
-    std::lock_guard<std::mutex> guard(engine->synthesisMutex);
-    ptt_destroy(engine->tts);
+    {
+        std::lock_guard<std::mutex> lock(engine->streamMutex);
+        if (engine->stream) ptt_stream_cancel(engine->stream);
+    }
+    {
+        std::lock_guard<std::mutex> guard(engine->synthesisMutex);
+        ptt_destroy(engine->tts);
+        engine->tts = nullptr;
+    }
     delete engine;
 }

@@ -6,6 +6,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.os.Build
+import android.os.PowerManager
+import androidx.media3.common.C
 import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import androidx.media3.common.MediaItem
@@ -32,6 +34,8 @@ class PlaybackService : MediaSessionService() {
     private var bookId: String? = null
     private var itemCount: Int = 0
     private var baseIndex: Int = 0
+    private var generationToken: String? = null
+    private var generationWakeLock: PowerManager.WakeLock? = null
     private val progressTask = object : Runnable {
         override fun run() {
             saveProgress()
@@ -58,12 +62,15 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
         player = ExoPlayer.Builder(this)
             .setSeekBackIncrementMs(SEEK_BACK_MS)
             .setSeekForwardIncrementMs(SEEK_FORWARD_MS)
             .build()
+        player.setWakeMode(C.WAKE_MODE_LOCAL)
+        running = true
         player.addListener(playerListener)
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(launchActivityIntent())
@@ -101,6 +108,22 @@ class PlaybackService : MediaSessionService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_PREPARE -> {
+                generationToken = intent.getStringExtra(EXTRA_GENERATION_TOKEN)
+                if (generationWakeLock?.isHeld != true) {
+                    generationWakeLock = getSystemService(PowerManager::class.java)
+                        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "audiobookreader:generation")
+                        .apply { acquire(6 * 60 * 60 * 1000L) }
+                }
+            }
+            ACTION_GENERATION_FINISHED -> {
+                if (generationToken == intent.getStringExtra(EXTRA_GENERATION_TOKEN)) {
+                    generationToken = null
+                    releaseGenerationWakeLock()
+                    if (player.mediaItemCount == 0) stopSelf()
+                }
+            }
+            ACTION_RESUME -> player.play()
             ACTION_PLAY -> {
             val paths = intent.getStringArrayExtra(EXTRA_PATHS).orEmpty()
             val startAt = intent.getIntExtra(EXTRA_START, 0)
@@ -109,6 +132,7 @@ class PlaybackService : MediaSessionService() {
             baseIndex = intent.getIntExtra(EXTRA_BASE_INDEX, 0).coerceAtLeast(0)
             val startPosition = intent.getLongExtra(EXTRA_POSITION, 0L)
             if (paths.isNotEmpty()) {
+                player.setPlaybackSpeed(intent.getFloatExtra(EXTRA_SPEED, 1f).coerceIn(0.5f, 2.5f))
                 player.setMediaItems(paths.map { MediaItem.fromUri(Uri.fromFile(java.io.File(it))) }, startAt, startPosition)
                 player.prepare()
                 player.play()
@@ -118,13 +142,26 @@ class PlaybackService : MediaSessionService() {
                 val paths = intent.getStringArrayExtra(EXTRA_PATHS).orEmpty()
                 val appendBookId = intent.getStringExtra(EXTRA_BOOK_ID)
                 if (appendBookId == bookId && paths.isNotEmpty()) {
+                    val ended = player.playbackState == Player.STATE_ENDED
+                    val oldCount = player.mediaItemCount
+                    val resume = player.playWhenReady
                     player.addMediaItems(paths.map { MediaItem.fromUri(Uri.fromFile(java.io.File(it))) })
-                    if (player.playbackState == Player.STATE_ENDED) player.play()
+                    if (ended) {
+                        player.seekTo(oldCount, 0L)
+                        player.prepare()
+                        player.playWhenReady = resume
+                    }
                 }
             }
             ACTION_STOP -> {
                 saveProgress()
+                if (intent.getBooleanExtra(EXTRA_NOTIFY_STOP, true)) {
+                    sendBroadcast(Intent(ACTION_CANCEL_GENERATION).setPackage(packageName))
+                }
+                generationToken = null
+                releaseGenerationWakeLock()
                 player.stop()
+                bookId = null
                 stopSelf()
             }
             ACTION_SEEK_BACK -> player.seekBack()
@@ -171,6 +208,8 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession = mediaSession
 
     override fun onDestroy() {
+        running = false
+        releaseGenerationWakeLock()
         saveProgress()
         handler.removeCallbacks(progressTask)
         handler.removeCallbacks(uiProgressTask)
@@ -186,6 +225,16 @@ class PlaybackService : MediaSessionService() {
     }
 
     companion object {
+        @Volatile private var running = false
+        @Volatile private var latestProgress: ReadingProgress? = null
+        fun currentProgress(bookId: String): ReadingProgress? = latestProgress?.takeIf { it.bookId == bookId && running }
+        const val ACTION_CANCEL_GENERATION = "com.audiobookreader.action.CANCEL_GENERATION"
+        private const val ACTION_PREPARE = "com.audiobookreader.action.PREPARE_GENERATION"
+        private const val ACTION_GENERATION_FINISHED = "com.audiobookreader.action.GENERATION_FINISHED"
+        private const val ACTION_RESUME = "com.audiobookreader.action.RESUME"
+        private const val EXTRA_GENERATION_TOKEN = "generationToken"
+        private const val EXTRA_SPEED = "playbackSpeed"
+        private const val EXTRA_NOTIFY_STOP = "notifyStop"
         private const val AUTO_SAVE_INTERVAL_MS = 20_000L
         private const val UI_PROGRESS_INTERVAL_MS = 1_000L
         const val ACTION_PROGRESS = "com.audiobookreader.action.PROGRESS"
@@ -210,7 +259,7 @@ class PlaybackService : MediaSessionService() {
         private const val SEEK_BACK_MS = 15_000L
         private const val SEEK_FORWARD_MS = 30_000L
 
-        fun play(context: Context, files: List<String>, bookId: String, startAt: Int = 0, positionMs: Long = 0L, itemCount: Int = files.size, baseIndex: Int = 0) {
+        fun play(context: Context, files: List<String>, bookId: String, startAt: Int = 0, positionMs: Long = 0L, itemCount: Int = files.size, baseIndex: Int = 0, playbackSpeed: Float = 1f) {
             val intent = Intent(context, PlaybackService::class.java)
                 .setAction(ACTION_PLAY)
                 .putExtra(EXTRA_PATHS, files.toTypedArray())
@@ -219,6 +268,7 @@ class PlaybackService : MediaSessionService() {
                 .putExtra(EXTRA_BOOK_ID, bookId)
                 .putExtra(EXTRA_ITEM_COUNT, itemCount)
                 .putExtra(EXTRA_BASE_INDEX, baseIndex)
+                .putExtra(EXTRA_SPEED, playbackSpeed)
             ContextCompat.startForegroundService(context, intent)
         }
 
@@ -232,7 +282,23 @@ class PlaybackService : MediaSessionService() {
         }
 
         fun stop(context: Context) {
-            ContextCompat.startForegroundService(context, Intent(context, PlaybackService::class.java).setAction(ACTION_STOP))
+            if (running) context.startService(Intent(context, PlaybackService::class.java).setAction(ACTION_STOP).putExtra(EXTRA_NOTIFY_STOP, false))
+        }
+
+        fun prepareGeneration(context: Context): String {
+            val token = java.util.UUID.randomUUID().toString()
+            ContextCompat.startForegroundService(context, Intent(context, PlaybackService::class.java)
+                .setAction(ACTION_PREPARE).putExtra(EXTRA_GENERATION_TOKEN, token))
+            return token
+        }
+
+        fun finishGeneration(context: Context, token: String) {
+            if (running) context.startService(Intent(context, PlaybackService::class.java)
+                .setAction(ACTION_GENERATION_FINISHED).putExtra(EXTRA_GENERATION_TOKEN, token))
+        }
+
+        fun resume(context: Context) {
+            if (running) context.startService(Intent(context, PlaybackService::class.java).setAction(ACTION_RESUME))
         }
 
         fun reset(context: Context, bookId: String, itemCount: Int) {
@@ -269,6 +335,7 @@ class PlaybackService : MediaSessionService() {
         val id = bookId ?: return
         val index = indexOverride ?: (baseIndex + player.currentMediaItemIndex).coerceAtLeast(0)
         val position = positionOverride ?: player.currentPosition.coerceAtLeast(0L)
+        latestProgress = ReadingProgress(id, index, position, itemCount)
         sendBroadcast(Intent(ACTION_PROGRESS).setPackage(packageName)
             .putExtra(EXTRA_BOOK_ID, id)
             .putExtra(EXTRA_START, index)
@@ -276,6 +343,12 @@ class PlaybackService : MediaSessionService() {
             .putExtra(EXTRA_ITEM_COUNT, itemCount))
     }
 
+    private fun releaseGenerationWakeLock() {
+        generationWakeLock?.let { if (it.isHeld) it.release() }
+        generationWakeLock = null
+    }
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun createPlaybackNotification() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -284,7 +357,7 @@ class PlaybackService : MediaSessionService() {
         }
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_bookreader)
-            .setContentTitle("BookReader")
+            .setContentTitle("audiobookreader")
             .setContentText("Audiobook playback")
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setOngoing(true)

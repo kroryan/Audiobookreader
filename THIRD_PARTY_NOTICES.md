@@ -1,7 +1,7 @@
-# BookReader third-party notices
+# audiobookreader third-party notices
 
-BookReader uses the following third-party projects and model packages. Their
-licenses apply independently from BookReader's own license.
+audiobookreader uses the following third-party projects and model packages. Their
+licenses apply independently from audiobookreader's own license.
 
 ## Sherpa-ONNX
 
@@ -11,7 +11,7 @@ Copyright and license notices are available in the upstream distribution:
 - https://github.com/k2-fsa/sherpa-onnx
 - Apache License 2.0: https://github.com/k2-fsa/sherpa-onnx/blob/master/LICENSE
 
-BookReader does not bundle the downloadable TTS model weights in the APK.
+audiobookreader does not bundle the downloadable TTS model weights in the APK.
 Models are fetched on demand from the upstream Sherpa-ONNX model release and
 their package notices are retained when extracted.
 
@@ -27,7 +27,7 @@ their package notices are retained when extracted.
 - Supertonic: model weights are distributed under OpenRAIL-M; the model's
   use-based restrictions must be respected. The app requests acceptance
   before download.
-- PocketTTS: BookReader uses the multilingual PocketTTS.cpp ONNX runtime
+- PocketTTS: audiobookreader uses the multilingual PocketTTS.cpp ONNX runtime
   together with separately downloaded language packs. The runtime is MIT
   licensed; Kyutai model weights and the community ONNX export have separate
   attribution and use conditions. The app requires acceptance and a
@@ -49,14 +49,14 @@ Model links and license links:
 
 ## Edge TTS
 
-Edge voices are an online provider. BookReader does not download or embed
+Edge voices are an online provider. audiobookreader does not download or embed
 Microsoft voice model files. Availability and use remain subject to the
 provider's service terms, endpoint availability, network access, and rate
 limits.
 
 Voice cloning
 
-PocketTTS and ZipVoice are local zero-shot voice-cloning models. BookReader
+PocketTTS and ZipVoice are local zero-shot voice-cloning models. audiobookreader
 does not ship a person's voice recording as a default for cloning. Users are
 responsible for having permission to use any reference audio and for complying
 with applicable disclosure and synthetic-media laws. ZipVoice currently uses
@@ -74,4 +74,4 @@ PocketTTS native runtime and model export:
 
 The Android build also uses AndroidX, Media3, OkHttp, jsoup, PDFBox-Android,
 Commons Compress, and Sherpa-ONNX. Their license and notice files are supplied
-by their respective distributions and are not relicensed by BookReader.
+by their respective distributions and are not relicensed by audiobookreader.

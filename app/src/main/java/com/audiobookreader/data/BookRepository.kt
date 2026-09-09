@@ -80,8 +80,9 @@ class BookRepository(private val context: Context) {
         }
     }.getOrNull()
 
-    private fun readText(uri: Uri): String = context.contentResolver.openInputStream(uri)!!
-        .bufferedReader().use { it.readText() }
+    private fun readText(uri: Uri): String = context.contentResolver.openInputStream(uri)?.use { input ->
+        input.bufferedReader().use { it.readText() }
+    } ?: error("No se pudo leer el archivo")
 
     private fun parsePdf(uri: Uri): List<Chapter> {
         val document = context.contentResolver.openInputStream(uri).use { PDDocument.load(it) }

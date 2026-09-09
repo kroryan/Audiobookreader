@@ -533,7 +533,16 @@ static std::string get_cache_path(const std::string& voices_dir, const std::stri
     if (slash != std::string::npos) filename = voice_path.substr(slash + 1);
     size_t dot = filename.rfind('.');
     if (dot != std::string::npos) filename = filename.substr(0, dot);
-    return voices_dir + "/.cache/" + filename + "." + ext;
+    std::ifstream input(voice_path, std::ios::binary);
+    uint64_t hash = 14695981039346656037ULL;
+    char buffer[8192];
+    while (input.read(buffer, sizeof(buffer)) || input.gcount()) {
+        for (std::streamsize i = 0; i < input.gcount(); ++i) {
+            hash ^= static_cast<unsigned char>(buffer[i]);
+            hash *= 1099511628211ULL;
+        }
+    }
+    return voices_dir + "/.cache/" + filename + "-v2-" + std::to_string(hash) + "." + ext;
 }
 
 static bool is_cache_valid(const std::string& voice_path, const std::string& cache_path) {
@@ -2741,6 +2750,7 @@ struct ptt_stream_ctx {
     std::deque<std::pair<float*, size_t>> chunks;
     bool done = false;
     bool aborted = false;
+    bool failed = false;
 };
 
 void* ptt_stream_start(void* handle, const char* text, const char* voice) {
@@ -2752,7 +2762,7 @@ void* ptt_stream_start(void* handle, const char* text, const char* voice) {
         try {
             tts->stream(t, v, [ctx](const float* samples, size_t n) -> bool {
                 float* copy = static_cast<float*>(malloc(n * sizeof(float)));
-                if (!copy) return false;
+                if (!copy) throw std::bad_alloc();
                 std::memcpy(copy, samples, n * sizeof(float));
                 {
                     std::lock_guard<std::mutex> lock(ctx->mtx);
@@ -2764,6 +2774,11 @@ void* ptt_stream_start(void* handle, const char* text, const char* voice) {
             });
         } catch (const std::exception& e) {
             std::cerr << "[pocket-tts] stream error: " << e.what() << "\n";
+            std::lock_guard<std::mutex> lock(ctx->mtx);
+            ctx->failed = true;
+        } catch (...) {
+            std::lock_guard<std::mutex> lock(ctx->mtx);
+            ctx->failed = true;
         }
         {
             std::lock_guard<std::mutex> lock(ctx->mtx);
@@ -2789,7 +2804,7 @@ int ptt_stream_read(void* stream_ctx, float** out_samples, int* out_len) {
         *out_len = static_cast<int>(len);
         return 1;
     }
-    return ctx->aborted ? -2 : 0;
+    return ctx->aborted ? -2 : ctx->failed ? -1 : 0;
 }
 
 // Request cancellation without freeing the context. The owner must subsequently

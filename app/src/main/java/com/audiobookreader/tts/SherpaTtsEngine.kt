@@ -38,7 +38,7 @@ class SherpaTtsEngine(
 
     fun sampleRate(): Int = nativePocket?.let { 24_000 } ?: checkNotNull(tts).sampleRate()
 
-    fun generate(text: String, speakerId: Int = 0, speed: Float = 1f): FloatArray {
+    fun generate(text: String, speakerId: Int = 0, speed: Float = 1f, isActive: () -> Boolean = { true }): FloatArray {
         if (spec.referenceAudioRequired) {
             check(referenceAudio != null && referenceAudio.isNotEmpty()) { "Selecciona un audio de referencia para esta voz" }
             check(referenceSampleRate > 0) { "El audio de referencia no tiene una frecuencia válida" }
@@ -48,20 +48,25 @@ class SherpaTtsEngine(
         }
         if (nativePocket != null) {
             check(referenceAudioPath.isNotBlank()) { "Selecciona un audio de referencia o una voz predefinida" }
-            val samples = ArrayList<Float>()
+            val chunks = ArrayList<FloatArray>()
+            var sampleCount = 0
             val completed = nativePocket.synthesize(
                 text,
                 referenceAudioPath,
                 object : NativePocketTts.AudioSink {
                     override fun onAudio(chunk: FloatArray): Boolean {
-                        samples.ensureCapacity(samples.size + chunk.size)
-                        for (sample in chunk) samples.add(sample)
-                        return true
+                        if (!isActive()) return false
+                        chunks.add(chunk)
+                        sampleCount += chunk.size
+                        return isActive()
                     }
                 },
             )
-            check(completed && samples.isNotEmpty()) { "PocketTTS no generó audio" }
-            return samples.toFloatArray()
+            check(completed && sampleCount > 0 && isActive()) { "PocketTTS no completó la generación de audio" }
+            return FloatArray(sampleCount).also { samples ->
+                var offset = 0
+                chunks.forEach { chunk -> chunk.copyInto(samples, offset); offset += chunk.size }
+            }
         }
         return checkNotNull(tts).generateWithConfig(text, GenerationConfig(
             sid = speakerId,

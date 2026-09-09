@@ -1,4 +1,4 @@
-# BookReader
+# audiobookreader
 
 Android PDF/EPUB/text reader with local text-to-speech and background playback.
 
@@ -22,7 +22,7 @@ Android PDF/EPUB/text reader with local text-to-speech and background playback.
 - Per-book settings: downloaded model, reading speed, named Kokoro/Supertonic voice, and voice-cloning reference. Changing the speed or voice clears that model's generated audio so it can be regenerated without mixing settings.
 - Prepared-audio percentage and size per book, per-book or global cache cleanup, and a 512 MB limit to prevent excessive storage use.
 - Light/dark theme automatically follows the system theme, with reading-specific contrast.
-- Local ONNX model import from Settings. The user provides an ISO 639-1/639-2/639-3 language code (`es` or `spa`, for example), and `tokens.txt` is required; `.onnx.json`, lexicons, and other auxiliary files can also be selected. Files are stored inside BookReader's private sandbox.
+- Local ONNX model import from Settings. The user provides an ISO 639-1/639-2/639-3 language code (`es` or `spa`, for example), and `tokens.txt` is required; `.onnx.json`, lexicons, and other auxiliary files can also be selected. Files are stored inside audiobookreader's private sandbox.
 - Original app icon in `assets/bookreader-icon.png`, also used by the APK.
 - Third-party credits and license references are available in `THIRD_PARTY_NOTICES.md` and in the installed app assets.
 
@@ -40,7 +40,7 @@ On Windows x64, install JDK 21 and WiX 3, then run:
 .\gradlew.bat :desktop:packageMsi :desktop:packageExe
 ```
 
-The installers include Java, the Windows graphics/TTS libraries and the BookReader icon. They support per-user installation, a selectable destination and Start Menu/desktop shortcuts. Outputs are in `desktop/build/compose/binaries/main/msi/` and `desktop/build/compose/binaries/main/exe/`.
+The installers include Java, the Windows graphics/TTS libraries and the audiobookreader icon. They support per-user installation, a selectable destination and Start Menu/desktop shortcuts. Outputs are in `desktop/build/compose/binaries/main/msi/` and `desktop/build/compose/binaries/main/exe/`.
 
 Linux can also package the same JVM code with a Windows JDK under Wine:
 
@@ -75,7 +75,7 @@ The list was cross-checked against `scripts/apk/generate-tts-apk-script.py` from
 - PocketTTS INT8: local multilingual zero-shot voice cloning from a reference WAV. English, French, German, Italian, Portuguese and Spanish language packs are downloaded independently; all voices in a pack reuse the same model.
 - ZipVoice Distill INT8: local Chinese/English zero-shot cloning from a WAV and its exact transcript; the Vocos vocoder is installed automatically.
 
-BookReader uses a verified 54-voice Kokoro v1.0 bundle, including the Spanish `ef_dora`, `em_alex` and `em_santa` embeddings. Model weights are never bundled in the Android APK; they are downloaded on demand and validated after extraction.
+audiobookreader uses a verified 54-voice Kokoro v1.0 bundle, including the Spanish `ef_dora`, `em_alex` and `em_santa` embeddings. Model weights are never bundled in the Android APK; they are downloaded on demand and validated after extraction.
 
 ## Technical references
 

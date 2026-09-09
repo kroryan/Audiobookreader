@@ -15,7 +15,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "BookReader"
+rootProject.name = "audiobookreader"
 include(":app")
 include(":shared")
 include(":desktop")

@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">BookReader</string>
-    <string name="playback_channel_name">BookReader playback</string>
+    <string name="app_name">audiobookreader</string>
+    <string name="playback_channel_name">audiobookreader playback</string>
 </resources>
