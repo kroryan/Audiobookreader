@@ -79,6 +79,7 @@ import com.audiobookreader.data.ModelCatalog
 import com.audiobookreader.data.PocketVoice
 import com.audiobookreader.data.TextChunker
 import com.audiobookreader.data.TtsModelSpec
+import com.audiobookreader.ui.theme.AppThemeMode
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -975,7 +976,34 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { Text(strings.systemTheme, style = MaterialTheme.typography.titleMedium); Text(strings.systemThemeDescription) }
+        item {
+            Text(strings.systemTheme, style = MaterialTheme.typography.titleMedium)
+            Text(strings.systemThemeDescription)
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ThemeModeButton(
+                    label = if (state.appLanguage == AppLanguage.SPANISH) "Sistema" else "System",
+                    selected = state.themeMode == AppThemeMode.SYSTEM,
+                    onClick = { viewModel.setThemeMode(AppThemeMode.SYSTEM) },
+                    modifier = Modifier.weight(1f),
+                )
+                ThemeModeButton(
+                    label = if (state.appLanguage == AppLanguage.SPANISH) "Claro" else "Light",
+                    selected = state.themeMode == AppThemeMode.LIGHT,
+                    onClick = { viewModel.setThemeMode(AppThemeMode.LIGHT) },
+                    modifier = Modifier.weight(1f),
+                )
+                ThemeModeButton(
+                    label = if (state.appLanguage == AppLanguage.SPANISH) "Oscuro" else "Dark",
+                    selected = state.themeMode == AppThemeMode.DARK,
+                    onClick = { viewModel.setThemeMode(AppThemeMode.DARK) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
         item {
             Text(strings.backgroundPlayback, style = MaterialTheme.typography.titleMedium)
             Text(strings.backgroundPlaybackDescription)
@@ -1033,6 +1061,20 @@ private fun SettingsScreen(
     }
 }
 
+@Composable
+private fun ThemeModeButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (selected) {
+        Button(onClick = onClick, modifier = modifier, enabled = false) { Text(label, maxLines = 1) }
+    } else {
+        OutlinedButton(onClick = onClick, modifier = modifier) { Text(label, maxLines = 1) }
+    }
+}
+
 private data class UiStrings(
     val library: String, val librarySubtitle: String, val addBook: String, val emptyLibrary: String, val openBook: String,
     val models: String, val modelsSubtitle: String, val settings: String, val settingsSubtitle: String,
@@ -1050,7 +1092,7 @@ private data class UiStrings(
     fun languageLabel(code: String) = if (code == "all") allLanguages else LANGUAGE_NAMES[code] ?: code.uppercase()
     companion object {
         private val LANGUAGE_NAMES = mapOf("af" to "Afrikaans", "ar" to "Arabic", "ca" to "Catalan", "cs" to "Czech", "cy" to "Welsh", "da" to "Danish", "de" to "German", "el" to "Greek", "en" to "English", "es" to "Spanish", "eu" to "Basque", "fa" to "Persian", "fi" to "Finnish", "fr" to "French", "hi" to "Hindi", "hr" to "Croatian", "hu" to "Hungarian", "id" to "Indonesian", "is" to "Icelandic", "it" to "Italian", "ka" to "Georgian", "kk" to "Kazakh", "ku" to "Kurdish", "lb" to "Luxembourgish", "lv" to "Latvian", "ne" to "Nepali", "nl" to "Dutch", "no" to "Norwegian", "pl" to "Polish", "pt" to "Portuguese", "ro" to "Romanian", "ru" to "Russian", "sk" to "Slovak", "sl" to "Slovenian", "sq" to "Albanian", "sr" to "Serbian", "sv" to "Swedish", "sw" to "Swahili", "tr" to "Turkish", "uk" to "Ukrainian", "ur" to "Urdu", "vi" to "Vietnamese", "zh" to "Chinese")
-        fun forLanguage(language: AppLanguage) = if (language == AppLanguage.SPANISH) UiStrings("Biblioteca", "Tus libros y su progreso de escucha", "Añadir PDF, EPUB o texto", "Todavía no has añadido ningún libro.", "Abrir libro", "Modelos", "Se descargan bajo demanda y se ejecutan dentro de audiobookreader.", "Ajustes", "Preferencias de la aplicación", "capítulos/páginas", "Voz", "Progreso guardado", "fragmento", "Audio preparado", "La posición se guarda automáticamente cada 20 segundos y al pausar.", "Preparando los primeros minutos…", "Reproducir / continuar", "Guardar marcador", "Limpiar audio", "Limpiar caché", "Marcadores", "leyendo ahora", "Experimental: requiere validación adicional", "Seleccionado", "Usar", "Descargado", "Descargar", "Reiniciar progreso", "Detener", "Fragmento anterior", "Siguiente fragmento", "Toca un fragmento para elegirlo como inicio", "Posición del fragmento", "Configuración de voz", "Velocidad", "ID de voz", "Aplicar configuración", "Todos los idiomas", "Idioma de la interfaz", "Modelo importado", "Importar modelo ONNX", "Selecciona el .onnx y tokens.txt; puedes añadir también el .onnx.json y archivos auxiliares. Se guardan dentro de audiobookreader.", "Código de idioma", "Importar archivos", "Tema del sistema", "El modo oscuro sigue automáticamente la configuración del sistema.", "Reproducción en segundo plano", "Desactiva la optimización de batería para que el TTS y el reproductor sigan funcionando con la pantalla apagada.", "Abrir ajustes de batería", "Guardado de progreso", "El progreso y los marcadores se guardan automáticamente mientras escuchas.") else UiStrings("Library", "Your books and listening progress", "Add PDF, EPUB or text", "You have not added any books yet.", "Open book", "Models", "Downloaded on demand and executed inside audiobookreader.", "Settings", "Application preferences", "chapters/pages", "Voice", "Saved progress", "fragment", "Audio prepared", "Position is saved automatically every 20 seconds and when paused.", "Preparing the first minutes…", "Play / continue", "Save bookmark", "Clear audio", "Clear cache", "Bookmarks", "reading now", "Experimental: requires additional validation", "Selected", "Use", "Downloaded", "Download", "Reset progress", "Stop", "Previous fragment", "Next fragment", "Tap a fragment to choose it as the starting point", "Fragment position", "Voice settings", "Speed", "Voice ID", "Apply settings", "All languages", "Interface language", "Imported model", "Import ONNX model", "Select the .onnx and tokens.txt; you may also add the .onnx.json and auxiliary files. They are stored inside audiobookreader.", "Language code", "Import files", "System theme", "Dark mode follows the system setting automatically.", "Background playback", "Disable battery optimization so TTS and playback can continue with the screen off.", "Open battery settings", "Progress saving", "Progress and bookmarks are saved automatically while you listen.")
+        fun forLanguage(language: AppLanguage) = if (language == AppLanguage.SPANISH) UiStrings("Biblioteca", "Tus libros y su progreso de escucha", "Añadir PDF, EPUB o texto", "Todavía no has añadido ningún libro.", "Abrir libro", "Modelos", "Se descargan bajo demanda y se ejecutan dentro de audiobookreader.", "Ajustes", "Preferencias de la aplicación", "capítulos/páginas", "Voz", "Progreso guardado", "fragmento", "Audio preparado", "La posición se guarda automáticamente cada 20 segundos y al pausar.", "Preparando los primeros minutos…", "Reproducir / continuar", "Guardar marcador", "Limpiar audio", "Limpiar caché", "Marcadores", "leyendo ahora", "Experimental: requiere validación adicional", "Seleccionado", "Usar", "Descargado", "Descargar", "Reiniciar progreso", "Detener", "Fragmento anterior", "Siguiente fragmento", "Toca un fragmento para elegirlo como inicio", "Posición del fragmento", "Configuración de voz", "Velocidad", "ID de voz", "Aplicar configuración", "Todos los idiomas", "Idioma de la interfaz", "Modelo importado", "Importar modelo ONNX", "Selecciona el .onnx y tokens.txt; puedes añadir también el .onnx.json y archivos auxiliares. Se guardan dentro de audiobookreader.", "Código de idioma", "Importar archivos", "Apariencia", "Elige si la aplicación sigue el tema del sistema o utiliza siempre el modo claro u oscuro.", "Reproducción en segundo plano", "Desactiva la optimización de batería para que el TTS y el reproductor sigan funcionando con la pantalla apagada.", "Abrir ajustes de batería", "Guardado de progreso", "El progreso y los marcadores se guardan automáticamente mientras escuchas.") else UiStrings("Library", "Your books and listening progress", "Add PDF, EPUB or text", "You have not added any books yet.", "Open book", "Models", "Downloaded on demand and executed inside audiobookreader.", "Settings", "Application preferences", "chapters/pages", "Voice", "Saved progress", "fragment", "Audio prepared", "Position is saved automatically every 20 seconds and when paused.", "Preparing the first minutes…", "Play / continue", "Save bookmark", "Clear audio", "Clear cache", "Bookmarks", "reading now", "Experimental: requires additional validation", "Selected", "Use", "Downloaded", "Download", "Reset progress", "Stop", "Previous fragment", "Next fragment", "Tap a fragment to choose it as the starting point", "Fragment position", "Voice settings", "Speed", "Voice ID", "Apply settings", "All languages", "Interface language", "Imported model", "Import ONNX model", "Select the .onnx and tokens.txt; you may also add the .onnx.json and auxiliary files. They are stored inside audiobookreader.", "Language code", "Import files", "Appearance", "Choose whether the app follows the system theme or always uses light or dark mode.", "Background playback", "Disable battery optimization so TTS and playback can continue with the screen off.", "Open battery settings", "Progress saving", "Progress and bookmarks are saved automatically while you listen.")
     }
 }
 

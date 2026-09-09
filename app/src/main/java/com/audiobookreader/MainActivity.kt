@@ -14,6 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.audiobookreader.playback.PlaybackService
 import com.audiobookreader.ui.theme.BookReaderTheme
 
@@ -36,7 +37,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         updateBatteryOptimizationPrompt()
         setContent {
-            BookReaderTheme {
+            val state by readerViewModel.state.collectAsStateWithLifecycle()
+            BookReaderTheme(themeMode = state.themeMode) {
                 AudiobookReaderApp(
                     viewModel = readerViewModel,
                     showBatteryOptimizationPrompt = showBatteryOptimizationPrompt,

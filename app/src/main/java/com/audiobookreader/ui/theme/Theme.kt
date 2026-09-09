@@ -37,9 +37,28 @@ private val DarkColors = darkColorScheme(
     onSurfaceVariant = Color(0xFFCAC4D0),
 )
 
+enum class AppThemeMode(val preferenceValue: String) {
+    SYSTEM("system"),
+    LIGHT("light"),
+    DARK("dark");
+
+    companion object {
+        fun fromPreference(value: String?): AppThemeMode =
+            entries.firstOrNull { it.preferenceValue == value } ?: SYSTEM
+    }
+}
+
 @Composable
-fun BookReaderTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
+fun BookReaderTheme(
+    themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    content: @Composable () -> Unit,
+) {
+    val systemDark = isSystemInDarkTheme()
+    val dark = when (themeMode) {
+        AppThemeMode.SYSTEM -> systemDark
+        AppThemeMode.LIGHT -> false
+        AppThemeMode.DARK -> true
+    }
     val colors = if (dark) DarkColors else LightColors
     val view = LocalView.current
     if (!view.isInEditMode) {

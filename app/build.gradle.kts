@@ -19,8 +19,8 @@ android {
         applicationId = "com.audiobookreader"
         minSdk = 26
         targetSdk = 36
-        versionCode = 18
-        versionName = "0.1.17"
+        versionCode = 19
+        versionName = "0.1.18"
         externalNativeBuild {
             cmake { cppFlags += listOf("-std=c++17", "-O3") }
         }

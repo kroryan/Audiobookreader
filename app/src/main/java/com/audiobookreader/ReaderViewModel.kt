@@ -26,6 +26,7 @@ import com.audiobookreader.playback.AudioFile
 import com.audiobookreader.tts.SherpaTtsEngine
 import com.audiobookreader.tts.EdgeVoiceRepository
 import com.audiobookreader.data.ModelFamily
+import com.audiobookreader.ui.theme.AppThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -62,6 +63,7 @@ data class ReaderState(
     val generating: Boolean = false,
     val message: String? = null,
     val appLanguage: AppLanguage = AppLanguage.ENGLISH,
+    val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val modelLanguageFilter: String = "all",
     val recentModelIds: List<String> = emptyList(),
 )
@@ -77,6 +79,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     ) 2 else Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
     private val settings = appContext.getSharedPreferences("bookreader-settings", Context.MODE_PRIVATE)
     private val initialLanguage = AppLanguage.fromCode(settings.getString(KEY_APP_LANGUAGE, null))
+    private val initialThemeMode = AppThemeMode.fromPreference(settings.getString(KEY_THEME_MODE, null))
     private val initialModelLanguage = settings.getString(KEY_MODEL_LANGUAGE, "all").orEmpty().ifBlank { "all" }
     private val initialRecentModels = settings.getString(KEY_RECENT_MODELS, "").orEmpty()
         .lineSequence().filter(String::isNotBlank).distinct().take(MAX_RECENT_MODELS).toList()
@@ -88,6 +91,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         availableModels = allModels,
         selectedModel = initialModel,
         appLanguage = initialLanguage,
+        themeMode = initialThemeMode,
         modelLanguageFilter = initialModelLanguage,
         recentModelIds = initialRecentModels,
     ))
@@ -233,6 +237,11 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
     fun setAppLanguage(language: AppLanguage) {
         settings.edit().putString(KEY_APP_LANGUAGE, language.code).apply()
         _state.value = _state.value.copy(appLanguage = language)
+    }
+
+    fun setThemeMode(themeMode: AppThemeMode) {
+        settings.edit().putString(KEY_THEME_MODE, themeMode.preferenceValue).apply()
+        _state.value = _state.value.copy(themeMode = themeMode)
     }
 
     fun setModelLanguageFilter(language: String) {
@@ -1002,6 +1011,7 @@ class ReaderViewModel(private val appContext: Context) : ViewModel() {
         private const val IntentFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
         private const val KEY_SELECTED_MODEL = "selected_model"
         private const val KEY_APP_LANGUAGE = "app_language"
+        private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_MODEL_LANGUAGE = "model_language_filter"
         private const val KEY_RECENT_MODELS = "recent_models"
         private const val MAX_RECENT_MODELS = 100
