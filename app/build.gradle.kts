@@ -14,13 +14,14 @@ if (signingPropertiesFile.exists()) {
 android {
     namespace = "com.audiobookreader"
     compileSdk = 36
+    ndkVersion = "25.1.8937393"
 
     defaultConfig {
         applicationId = "com.audiobookreader"
         minSdk = 26
         targetSdk = 36
-        versionCode = 19
-        versionName = "0.1.18"
+        versionCode = 20
+        versionName = "0.1.19"
         externalNativeBuild {
             cmake { cppFlags += listOf("-std=c++17", "-O3") }
         }
@@ -66,6 +67,10 @@ android {
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // The Sherpa JVM adapter also publishes desktop runtimes as resources.
+        // Android uses only jni/<abi>; shipping macOS/Windows binaries wastes
+        // tens of megabytes and provides no Android functionality.
+        resources.excludes += "sherpa-onnx/native/**"
     }
 }
 
@@ -83,8 +88,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
 
     // Playback and MediaSession keep audio alive while the screen is locked/backgrounded.
-    implementation("androidx.media3:media3-exoplayer:1.2.1")
-    implementation("androidx.media3:media3-session:1.2.1")
+    implementation("androidx.media3:media3-exoplayer:1.10.1")
+    implementation("androidx.media3:media3-session:1.10.1")
 
     // Edge TTS uses its public WebSocket Read Aloud protocol for online voices.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

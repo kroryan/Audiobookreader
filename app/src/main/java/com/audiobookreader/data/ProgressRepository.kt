@@ -51,4 +51,8 @@ class ProgressRepository(context: Context) {
             if (parts.size != 4) return@mapNotNull null
             Bookmark(bookId, parts[0], parts[1].toIntOrNull() ?: return@mapNotNull null, parts[2].toLongOrNull() ?: return@mapNotNull null, parts[3].toIntOrNull() ?: return@mapNotNull null)
         }.sortedBy { it.itemIndex }
+
+    fun clearAll() {
+        prefs.edit().clear().commit()
+    }
 }

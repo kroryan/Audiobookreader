@@ -43,15 +43,17 @@ class AudioCacheRepository(context: Context) {
     }
 
     fun durationMs(bookId: String, modelId: String, index: Int): Long {
-        val file = File(root, "$bookId/$modelId").listFiles().orEmpty()
-            .firstOrNull { it.isAudioChunk(index) && it.length() > MIN_AUDIO_BYTES }
-            ?: return 0L
+        val file = fileAt(bookId, modelId, index) ?: return 0L
         return if (file.extension == "wav") {
             com.audiobookreader.playback.WavFile.durationMs(file)
         } else {
             com.audiobookreader.playback.AudioFile.durationMs(file)
         }
     }
+
+    fun fileAt(bookId: String, modelId: String, index: Int): File? =
+        File(root, "$bookId/$modelId").listFiles().orEmpty()
+            .firstOrNull { it.isAudioChunk(index) && it.length() > MIN_AUDIO_BYTES }
 
     fun clearModel(bookId: String, modelId: String) {
         File(root, "$bookId/$modelId").deleteRecursively()

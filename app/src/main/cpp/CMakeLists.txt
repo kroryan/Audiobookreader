@@ -43,6 +43,10 @@ add_library(pockettts_jni SHARED
 )
 target_compile_definitions(pockettts_jni PRIVATE PTT_SHARED_LIB)
 target_compile_options(pockettts_jni PRIVATE -O3 -ffile-prefix-map=${BOOKREADER_ROOT}=.)
+target_link_options(pockettts_jni PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+)
 target_include_directories(pockettts_jni PRIVATE
     "${ORT_HEADERS}"
     "${ORT_HEADERS}/onnxruntime/core/session"

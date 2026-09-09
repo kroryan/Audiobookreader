@@ -22,6 +22,10 @@ class EdgeVoiceRepository(context: Context) {
 
     fun cachedVoices(): List<TtsModelSpec> = cached()
 
+    fun clearCache() {
+        preferences.edit().clear().commit()
+    }
+
     private fun save(models: List<TtsModelSpec>) {
         val array = JSONArray()
         models.forEach { model ->

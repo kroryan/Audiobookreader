@@ -3,12 +3,15 @@ package com.audiobookreader
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,6 +68,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -95,7 +99,11 @@ fun AudiobookReaderApp(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val strings = UiStrings.forLanguage(state.appLanguage)
     var tab by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tab) {
+        if (tab == 1) viewModel.refreshOnlineVoices()
+    }
     Scaffold(
+        modifier = Modifier.statusBarsPadding(),
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("📚") }, label = { Text(strings.library) })
@@ -129,6 +137,42 @@ fun AudiobookReaderApp(
             },
         )
     }
+    state.pendingEdgeModel?.let { pending ->
+        val spanish = state.appLanguage == AppLanguage.SPANISH
+        AlertDialog(
+            onDismissRequest = viewModel::declineEdgeDisclosure,
+            title = { Text(if (spanish) "Uso de Edge TTS online" else "Using online Edge TTS") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(pending.name, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (spanish) {
+                            "Solo al reproducir con Edge, los fragmentos de texto seleccionados y los ajustes de voz, idioma y velocidad se envían directamente a Microsoft mediante una conexión cifrada para generar el audio. Tus documentos completos, marcadores y audios de clonación no se envían. Puedes rechazarlo y usar modelos locales."
+                        } else {
+                            "Only when playing with Edge, selected text fragments and the voice, language, and speed settings are sent directly to Microsoft over an encrypted connection to generate audio. Full documents, bookmarks, and voice-cloning recordings are not sent. You can decline and use local models."
+                        },
+                    )
+                    Text(
+                        if (spanish) "Puedes retirar este consentimiento en Ajustes." else "You can revoke this consent in Settings.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = viewModel::acceptEdgeDisclosure) {
+                    Text(if (spanish) "Aceptar y usar Edge" else "Accept and use Edge")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::declineEdgeDisclosure) {
+                    Text(if (spanish) "Rechazar" else "Decline")
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -139,6 +183,7 @@ private fun LibraryScreen(state: ReaderState, viewModel: ReaderViewModel, string
     }
     val openedBook = state.books.firstOrNull { it.id == openedBookId }
     if (openedBook != null) {
+        BackHandler { openedBookId = null }
         BookDetailScreen(openedBook, state, viewModel, strings) { openedBookId = null }
         return
     }
@@ -193,7 +238,8 @@ private fun BookCard(book: Book, state: ReaderState, viewModel: ReaderViewModel,
             BookCover(book, Modifier.fillMaxWidth().height(190.dp))
             Spacer(Modifier.height(8.dp))
             Text(book.title, style = MaterialTheme.typography.titleMedium, maxLines = 2)
-            if (state.selectedBook?.id == book.id) Text(state.progress?.let { "${it.percentage}%" } ?: "0%") else Text(strings.openBook)
+            val progress = state.progressByBook[book.id]
+            Text(if (progress != null) "${progress.percentage}%" else strings.openBook)
         }
     }
 }
@@ -588,7 +634,6 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
                 onClick = { scrollScope.launch { listState.animateScrollToItem(0) } },
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .statusBarsPadding()
                     .padding(start = 16.dp, top = 10.dp)
                     .size(56.dp)
                     .shadow(8.dp, MaterialTheme.shapes.large)
@@ -604,6 +649,7 @@ private fun BookDetailScreen(book: Book, state: ReaderState, viewModel: ReaderVi
 
 @Composable
 private fun ModelScreen(state: ReaderState, viewModel: ReaderViewModel, strings: UiStrings) {
+    val uriHandler = LocalUriHandler.current
     var expanded by remember { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var installedOnly by rememberSaveable { mutableStateOf(false) }
@@ -653,6 +699,18 @@ private fun ModelScreen(state: ReaderState, viewModel: ReaderViewModel, strings:
             }
             OutlinedButton(onClick = { installedOnly = !installedOnly }) {
                 Text((if (installedOnly) "✓ " else "") + if (state.appLanguage == AppLanguage.SPANISH) "Descargados y disponibles" else "Downloaded and available")
+            }
+            if (state.downloading != null || state.downloadQueue.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (state.appLanguage == AppLanguage.SPANISH) {
+                        "Descargas: ${if (state.downloading != null) "1 activa" else "ninguna activa"} · ${state.downloadQueue.size} en cola"
+                    } else {
+                        "Downloads: ${if (state.downloading != null) "1 active" else "none active"} · ${state.downloadQueue.size} queued"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         item(key = "local-heading") {
@@ -715,8 +773,20 @@ private fun ModelScreen(state: ReaderState, viewModel: ReaderViewModel, strings:
                             "By accepting, you confirm that you will use the model according to its terms, including any applicable use restrictions, attribution, or ShareAlike requirements."
                         }
                     )
+                    if (spec.referenceAudioRequired) {
+                        Text(
+                            if (spanish) {
+                                "Usa únicamente voces para las que tengas permiso. No utilices la clonación para suplantar, engañar o perjudicar a otras personas."
+                            } else {
+                                "Only use voices you have permission to use. Do not use voice cloning to impersonate, deceive, or harm other people."
+                            },
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     if (spec.licenseUrl.isNotBlank()) {
-                        Text(spec.licenseUrl, style = MaterialTheme.typography.labelSmall)
+                        TextButton(onClick = { uriHandler.openUri(spec.licenseUrl) }) {
+                            Text(if (spanish) "Abrir licencia completa" else "Open full license")
+                        }
                     }
                 }
             },
@@ -831,6 +901,15 @@ private fun ModelCard(
                 }
                 else if (state.downloading == spec.id) {
                     Text("${state.downloadProgress}% · ${if (state.downloadProgress < 60) "Downloading" else "Extracting / installing"}")
+                }
+                else if (spec.storageId in state.downloadQueue) {
+                    val position = state.downloadQueue.indexOf(spec.storageId) + 1
+                    TextButton(onClick = { viewModel.removeQueuedDownload(spec) }) {
+                        Text(
+                            if (state.appLanguage == AppLanguage.SPANISH) "En cola #$position · Quitar"
+                            else "Queued #$position · Remove",
+                        )
+                    }
                 }
                 else TextButton(enabled = state.deletingModel == null, onClick = {
                     if (spec.requiresAcceptance) onLicenseRequired(spec) else viewModel.downloadModel(spec)
@@ -951,8 +1030,10 @@ private fun SettingsScreen(
     strings: UiStrings,
     onRequestBatteryOptimization: () -> Unit,
 ) {
+    val uriHandler = LocalUriHandler.current
     var modelLanguage by rememberSaveable { mutableStateOf("") }
     var pendingModelUris by remember { mutableStateOf<List<Uri>?>(null) }
+    var confirmClearAll by remember { mutableStateOf(false) }
     val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) pendingModelUris = uris
     }
@@ -967,6 +1048,7 @@ private fun SettingsScreen(
         item {
             Text(strings.settings, style = MaterialTheme.typography.headlineMedium)
             Text(strings.settingsSubtitle)
+            state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         }
         item {
             Text(strings.interfaceLanguage, style = MaterialTheme.typography.titleMedium)
@@ -1014,6 +1096,40 @@ private fun SettingsScreen(
         }
         item { Text(strings.progressSettings, style = MaterialTheme.typography.titleMedium); Text(strings.progressDescription) }
         item {
+            val spanish = state.appLanguage == AppLanguage.SPANISH
+            Text(if (spanish) "Privacidad y uso online" else "Privacy and online use", style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (spanish) {
+                    "Los libros, el progreso, los modelos locales y las muestras de voz se guardan en el dispositivo. Edge TTS solo envía a Microsoft los fragmentos que reproduces con una voz Edge."
+                } else {
+                    "Books, progress, local models, and voice samples remain on this device. Edge TTS only sends Microsoft the fragments you play with an Edge voice."
+                },
+            )
+            Spacer(Modifier.height(6.dp))
+            OutlinedButton(onClick = { uriHandler.openUri(PRIVACY_POLICY_URL) }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (spanish) "Política de privacidad" else "Privacy policy")
+            }
+            OutlinedButton(onClick = { uriHandler.openUri(THIRD_PARTY_NOTICES_URL) }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (spanish) "Licencias y atribuciones" else "Licenses and attributions")
+            }
+            OutlinedButton(onClick = { uriHandler.openUri(REPORT_CONTENT_URL) }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (spanish) "Informar de audio generado" else "Report synthesized audio")
+            }
+            Text(
+                if (state.edgeConsentGranted) {
+                    if (spanish) "Edge TTS online: consentimiento concedido" else "Online Edge TTS: consent granted"
+                } else {
+                    if (spanish) "Edge TTS online: no autorizado" else "Online Edge TTS: not authorized"
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (state.edgeConsentGranted) {
+                TextButton(onClick = viewModel::revokeEdgeConsent) {
+                    Text(if (spanish) "Retirar consentimiento de Edge" else "Revoke Edge consent")
+                }
+            }
+        }
+        item {
             Text(strings.importLocalModel, style = MaterialTheme.typography.titleMedium)
             Text(strings.importModelHelp)
             OutlinedTextField(
@@ -1027,6 +1143,31 @@ private fun SettingsScreen(
             Spacer(Modifier.height(6.dp))
             Button(onClick = { modelPicker.launch(arrayOf("*/*")) }, enabled = modelLanguage.length == 3) {
                 Text(strings.importModel)
+            }
+        }
+        item {
+            val spanish = state.appLanguage == AppLanguage.SPANISH
+            Text(if (spanish) "Datos locales" else "Local data", style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (spanish) {
+                    "Elimina libros de la biblioteca, progreso, marcadores, modelos, audio generado, portadas, muestras de voz y preferencias. Los documentos originales no se borran."
+                } else {
+                    "Delete the library, progress, bookmarks, models, generated audio, covers, voice samples, and preferences. Original documents are not deleted."
+                },
+            )
+            Spacer(Modifier.height(6.dp))
+            OutlinedButton(
+                onClick = { confirmClearAll = true },
+                enabled = state.downloading == null && state.downloadQueue.isEmpty() && state.deletingModel == null && !state.clearingLocalData,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (state.clearingLocalData) {
+                        if (spanish) "Borrando…" else "Deleting…"
+                    } else {
+                        if (spanish) "Borrar todos los datos locales" else "Delete all local data"
+                    },
+                )
             }
         }
     }
@@ -1059,6 +1200,32 @@ private fun SettingsScreen(
             },
         )
     }
+    if (confirmClearAll) {
+        val spanish = state.appLanguage == AppLanguage.SPANISH
+        AlertDialog(
+            onDismissRequest = { confirmClearAll = false },
+            title = { Text(if (spanish) "¿Borrar todos los datos locales?" else "Delete all local data?") },
+            text = {
+                Text(
+                    if (spanish) {
+                        "Esta acción no se puede deshacer. No elimina los PDF o EPUB originales fuera de la aplicación."
+                    } else {
+                        "This cannot be undone. PDF or EPUB originals outside the app will not be deleted."
+                    },
+                )
+            },
+            confirmButton = {
+                Button(onClick = { confirmClearAll = false; viewModel.clearAllLocalData() }) {
+                    Text(if (spanish) "Borrar" else "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClearAll = false }) {
+                    Text(if (spanish) "Cancelar" else "Cancel")
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -1069,11 +1236,15 @@ private fun ThemeModeButton(
     modifier: Modifier = Modifier,
 ) {
     if (selected) {
-        Button(onClick = onClick, modifier = modifier, enabled = false) { Text(label, maxLines = 1) }
+        Button(onClick = onClick, modifier = modifier) { Text("✓ $label", maxLines = 1) }
     } else {
         OutlinedButton(onClick = onClick, modifier = modifier) { Text(label, maxLines = 1) }
     }
 }
+
+private const val PRIVACY_POLICY_URL = "https://github.com/kroryan/Audiobookreader/blob/main/PRIVACY_POLICY.md"
+private const val THIRD_PARTY_NOTICES_URL = "https://github.com/kroryan/Audiobookreader/blob/main/THIRD_PARTY_NOTICES.md"
+private const val REPORT_CONTENT_URL = "https://github.com/kroryan/Audiobookreader/issues/new?title=Synthesized%20audio%20report"
 
 private data class UiStrings(
     val library: String, val librarySubtitle: String, val addBook: String, val emptyLibrary: String, val openBook: String,

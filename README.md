@@ -11,6 +11,8 @@ Android PDF/EPUB/text reader with local text-to-speech and background playback.
 - After a download completes, the model is selected automatically and its actual contents are validated, including packages containing nested directories.
 - `OfflineTts` adapter for Piper/VITS, Coqui VITS, Mimic3 VITS, Kokoro, Supertonic and ZipVoice, plus the native multilingual PocketTTS.cpp runtime.
 - Edge TTS voices loaded from the live public voice catalogue and marked `ONLINE`; no Edge model files are bundled or downloaded.
+- Edge TTS requires an explicit first-use disclosure before any book fragment is sent to Microsoft, and consent can be revoked in Settings.
+- Sequential model-download queue with per-model progress and removable pending entries.
 - License-aware downloads: models with additional conditions show their license, attribution, obligations, and accept/reject action before downloading.
 - Chunk-based PCM-to-WAV generation with a Media3 playlist.
 - Resumable progressive generation: playback starts after the first chunks are ready, and temporary look-ahead audio is removed when an unfinished book is stopped.
@@ -21,12 +23,14 @@ Android PDF/EPUB/text reader with local text-to-speech and background playback.
 - Previous/next chunk navigation and a seek bar for prepared audio.
 - Per-book settings: downloaded model, reading speed, named Kokoro/Supertonic voice, and voice-cloning reference. Changing the speed or voice clears that model's generated audio so it can be regenerated without mixing settings.
 - Prepared-audio percentage and size per book, per-book or global cache cleanup, and a 512 MB limit to prevent excessive storage use.
-- Light/dark theme automatically follows the system theme, with reading-specific contrast.
+- System, light, and dark appearance modes, with reading-specific contrast.
 - Local ONNX model import from Settings. The user provides an ISO 639-1/639-2/639-3 language code (`es` or `spa`, for example), and `tokens.txt` is required; `.onnx.json`, lexicons, and other auxiliary files can also be selected. Files are stored inside audiobookreader's private sandbox.
 - Original app icon in `assets/bookreader-icon.png`, also used by the APK.
 - Third-party credits and license references are available in `THIRD_PARTY_NOTICES.md` and in the installed app assets.
 
-The project is intended for Android Studio. The verified debug build is generated at `app/build/outputs/apk/debug/app-debug.apk`. The APK contains the native engine, but no TTS models or WAV files; both are managed at runtime.
+The project is intended for Android Studio. Signed release outputs are generated at `app/build/outputs/apk/release/` and `app/build/outputs/bundle/release/` when the ignored local signing configuration is present. The APK contains the native engine, but no TTS models or generated audio; both are managed at runtime.
+
+The [privacy policy](PRIVACY_POLICY.md) explains local processing and optional Edge TTS transmission. Maintainers should complete [the Google Play release checklist](docs/GOOGLE_PLAY_RELEASE_CHECKLIST.md) for every store submission.
 
 ## Desktop targets
 

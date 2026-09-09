@@ -69,6 +69,12 @@ class ModelRepository(context: Context) {
         return bytes
     }
 
+    fun clearAll() {
+        root.deleteRecursively()
+        root.mkdirs()
+        metadata.edit().clear().commit()
+    }
+
     private fun removeImportedMetadata(id: String) {
         val existing = runCatching { JSONArray(metadata.getString(KEY_IMPORTED_MODELS, "[]")) }
             .getOrElse { JSONArray() }
@@ -219,7 +225,8 @@ class ModelRepository(context: Context) {
         val target = rootDir(spec)
         val installing = File(root, "${spec.storageId}.installing")
         val archive = File(root, "${spec.storageId}.part")
-        val connection = URL(spec.archiveName).openConnection() as HttpURLConnection
+        try {
+        val connection = openHttpsConnection(spec.archiveName)
         connection.connectTimeout = 20_000
         connection.readTimeout = 60_000
         connection.instanceFollowRedirects = true
@@ -301,6 +308,11 @@ class ModelRepository(context: Context) {
         File(installing, INSTALL_MARKER).writeText(spec.storageId)
         activateInstallation(installing, target)
         progress(100)
+        } catch (error: Throwable) {
+            archive.delete()
+            installing.deleteRecursively()
+            throw error
+        }
     }
 
     suspend fun ensurePocketVoice(voice: PocketVoice): File = withContext(Dispatchers.IO) {
@@ -311,7 +323,7 @@ class ModelRepository(context: Context) {
         val target = File(directory, "${voice.id}.$extension")
         if (target.isFile && target.length() > 0L) return@withContext target
         val temporary = File(directory, ".${voice.id}.$extension.part")
-        val connection = URL(voice.sampleUrl).openConnection() as HttpURLConnection
+        val connection = openHttpsConnection(voice.sampleUrl)
         connection.connectTimeout = 20_000
         connection.readTimeout = 60_000
         connection.instanceFollowRedirects = true
@@ -375,7 +387,7 @@ class ModelRepository(context: Context) {
     }
 
     private fun downloadAuxiliary(url: String, target: File, progress: (Long, Long) -> Unit) {
-        val connection = URL(url).openConnection() as HttpURLConnection
+        val connection = openHttpsConnection(url)
         connection.connectTimeout = 20_000
         connection.readTimeout = 60_000
         connection.instanceFollowRedirects = true
@@ -445,6 +457,12 @@ class ModelRepository(context: Context) {
             return directory.walkTopDown().firstOrNull { it.isFile && it.name == expected }
         }
         return directory.walkTopDown().firstOrNull { it.isFile && it.name == spec.modelName }
+    }
+
+    private fun openHttpsConnection(address: String): HttpURLConnection {
+        val url = URL(address)
+        require(url.protocol.equals("https", ignoreCase = true)) { "Solo se permiten descargas HTTPS" }
+        return url.openConnection() as HttpURLConnection
     }
 
     companion object {

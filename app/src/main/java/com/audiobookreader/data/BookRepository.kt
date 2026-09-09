@@ -127,10 +127,18 @@ class BookRepository(private val context: Context) {
 
     private fun epubText(document: org.jsoup.nodes.Document): String {
         val body = document.body() ?: return ""
-        val blocks = body.select("h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,dt,dd,figcaption,caption,tr")
+        val blockTags = setOf("h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "blockquote", "pre", "dt", "dd", "figcaption", "caption", "tr")
+        val blocks = body.select(blockTags.joinToString(","))
+            // EPUBs commonly nest <p> inside <li> or <blockquote>. Keeping both
+            // repeats the same sentence in the reader and in synthesized audio.
+            .filter { element -> element.getAllElements().drop(1).none { it.tagName() in blockTags } }
             .map { it.text().trim() }
             .filter(String::isNotBlank)
         val raw = if (blocks.isNotEmpty()) blocks.joinToString("\n\n") else body.text()
         return TextChunker.normalizeDocumentText(raw)
+    }
+
+    fun clearCovers() {
+        File(context.filesDir, "book-covers").deleteRecursively()
     }
 }
