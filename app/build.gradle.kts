@@ -20,7 +20,7 @@ android {
         applicationId = "com.audiobookreader"
         minSdk = 26
         targetSdk = 36
-        versionCode = 21
+        versionCode = 22
         versionName = "1.0.0"
         externalNativeBuild {
             cmake { cppFlags += listOf("-std=c++17", "-O3") }
@@ -41,7 +41,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             if (signingPropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
